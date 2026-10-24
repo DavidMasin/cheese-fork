@@ -66,8 +66,11 @@ Shown automatically on phones, tablets, the installed PWA and the native app
 
 ### Install the APK
 
-1. Build it (below) or download `CheeseFork-release.apk` from the GitHub
-   Actions run / release.
+**Direct download:** <https://davidmasin.github.io/cheese-fork/download/CheeseFork.apk>
+(the signed release build, committed in `download/`).
+
+1. Open that link on the phone, or build the APK (below) / take it from a
+   GitHub Actions run.
 2. Copy the file to the phone (or open the GitHub link on the phone).
 3. Tap the file. Android asks to allow installing from this source; allow it.
 4. Open CheeseFork. On Android 13+ the app asks for notification permission
