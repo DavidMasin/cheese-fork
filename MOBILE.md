@@ -80,8 +80,11 @@ Shown automatically on phones, tablets, the installed PWA and the native app
   the tasks (replacing the calendar-export entries), and the materials are
   given to the AI helper so it can answer "יש חומר להרצאה הבאה?" with the
   actual download links. Checks run on launch/resume (at most every 30
-  minutes). A token can also be pasted by hand from Moodle's "מפתחות
-  אבטחה" page, which is the only route in a plain browser.
+  minutes), and **in the background every ~30 minutes** (Android
+  WorkManager, needs network): a notification lists new files and homework
+  and opens the tasks tab. The toggle is in the Moodle connection dialog.
+  A token can also be pasted by hand from Moodle's "מפתחות אבטחה" page,
+  which is the only route in a plain browser.
 - **AI helper** – bring your own key (Gemini has a free tier; OpenAI and
   Claude work too) under עוד → עוזר AI. The key stays on the device and
   requests go straight from the app to the provider. Three uses: the

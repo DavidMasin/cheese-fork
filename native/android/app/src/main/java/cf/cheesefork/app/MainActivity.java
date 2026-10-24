@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DayWidgetPlugin.class);
+        registerPlugin(MoodleBackgroundPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

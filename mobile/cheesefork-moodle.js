@@ -191,8 +191,47 @@
         return sync(true);
     }
 
+    // Background checks (Android): a periodic worker compares the courses
+    // with the snapshot the app last saw and notifies about new items.
+    function configureBackground(data) {
+        var background = platform.plugin('MoodleBackground');
+        if (!background) {
+            return;
+        }
+        if (!data.token || data.background === false) {
+            background.disable().catch(function () {});
+            return;
+        }
+        var notifications = platform.plugin('LocalNotifications');
+        var permission = notifications ? notifications.requestPermissions().catch(function () {
+            return null;
+        }) : Promise.resolve(null);
+        permission.then(function () {
+            return background.configure({
+                siteUrl: data.siteUrl,
+                token: data.token,
+                courses: data.courses.map(function (course) {
+                    return {id: course.id, name: course.fullname};
+                }),
+                snapshot: data.snapshot,
+                intervalMinutes: 30
+            });
+        }).catch(function () {});
+    }
+
+    function setBackgroundEnabled(enabled) {
+        var data = loadData();
+        data.background = enabled;
+        saveData(data);
+        configureBackground(data);
+    }
+
     function disconnect() {
         var data = loadData();
+        var background = platform.plugin('MoodleBackground');
+        if (background) {
+            background.disable().catch(function () {});
+        }
         localStorage.removeItem(STORAGE_KEY);
         if (window.cheeseForkTasks) {
             window.cheeseForkTasks.removeTasksBySource('moodlews');
@@ -458,6 +497,7 @@
             data.lastError = null;
             state.syncing = false;
             saveData(data);
+            configureBackground(data);
             if (interactive) {
                 toast('Moodle סונכרן: ' + data.courses.length + ' קורסים, ' + countUnread() + ' פריטים חדשים');
             }
@@ -761,6 +801,14 @@
                     'קורסים שזוהו: ' + (data.courses.map(function (course) {
                         return (course.course ? '✓ ' : '? ') + course.fullname.slice(0, 40);
                     }).join(' | ') || 'אין')));
+            if (platform.plugin('MoodleBackground')) {
+                var backgroundToggle = $('<input class="form-check-input" type="checkbox" id="cf-moodle-background">').prop('checked', data.background !== false);
+                backgroundToggle.on('change', function () {
+                    setBackgroundEnabled(this.checked);
+                });
+                message.append($('<div class="form-check mt-2"></div>').append(backgroundToggle,
+                    '<label class="form-check-label small" for="cf-moodle-background">בדיקה ברקע כל חצי שעה והתראה על קבצים ותרגילי בית חדשים</label>'));
+            }
         } else {
             message.append(
                 '<p>חיבור לחשבון ה-Moodle שלכם מאפשר לאפליקציה לראות חומרים חדשים, קבצים לכל שיעור ומטלות עם קישורים ישירים. ' +
@@ -980,6 +1028,7 @@
         showFeedDialog: showFeedDialog,
         showCourseMaterials: showCourseMaterials,
         showConnectDialog: showConnectDialog,
+        setBackgroundEnabled: setBackgroundEnabled,
         md5: md5,
         KIND_LABELS: KIND_LABELS
     };

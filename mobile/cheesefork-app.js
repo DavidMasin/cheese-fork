@@ -82,6 +82,25 @@
         $(document).on('cheesefork:tasks-changed cheesefork:moodle-changed', updateTasksBadge);
         updateTasksBadge();
 
+        // Notification taps open cheesefork://tasks.
+        var app = platform.plugin('App');
+        if (app) {
+            var openFromUrl = function (url) {
+                if (/^cheesefork:\/\/tasks/i.test(url || '')) {
+                    selectTab('tasks');
+                    if (window.cheeseForkMoodle) {
+                        window.cheeseForkMoodle.sync(false);
+                    }
+                }
+            };
+            app.addListener('appUrlOpen', function (event) {
+                openFromUrl(event && event.url);
+            });
+            app.getLaunchUrl().then(function (result) {
+                openFromUrl(result && result.url);
+            }).catch(function () {});
+        }
+
         selectTab(mobile.getView() === 'day' ? 'day' : 'week', true);
     }
 
