@@ -136,15 +136,36 @@ screens from `native/resources`.
 
 ## Signing in inside the native app
 
-Google blocks its sign-in page inside embedded web views ("disallowed
-user agent"), so the native app only offers **email/password** sign-in. If
-your CheeseFork account is a Google account:
+The app uses the real CheeseFork backend (same Firebase project, same
+Firestore, same course data), so any account works on the website and in
+the app alike. Two limitations apply to **Google** sign-in only:
 
-1. On the website, sign in and press "Share schedule" to get your share link.
-2. In the app, press **Import** and paste the link. The schedule is copied to
-   the device (and stays in sync with later imports).
+- Google blocks its sign-in page inside embedded web views ("disallowed
+  user agent"), so the native app only offers **email/password** sign-in.
+- Google sign-in on a fork's own domain (e.g. `<user>.github.io`) fails with
+  `auth/unauthorized-domain`, because only the maintainer can add domains
+  to the Firebase project. Email/password sign-in is not affected.
 
-Or create an email/password account from the app and use it on all devices.
+### Use your Google account in the app: add a password to it
+
+Firebase accounts can have both Google and email/password sign-in. Once:
+
+1. Open cheesefork.cf on a computer and sign in with Google.
+2. Open the browser console (F12 → Console) and run, with your Gmail
+   address and a password of your choice:
+
+   ```js
+   firebase.auth().currentUser.linkWithCredential(
+       firebase.auth.EmailAuthProvider.credential('you@gmail.com', 'choose-a-password')
+   ).then(function () { console.log('linked'); });
+   ```
+
+3. In the app, press "כניסה", choose email, and sign in with that address
+   and password. It is the same account, with the same schedules; Google
+   sign-in on the website keeps working.
+
+If you prefer not to, the share-link route also works: on the website press
+"Share schedule", then in the app press **Import** and paste the link.
 
 ## How it's built
 
