@@ -15,9 +15,9 @@
     var PROVIDERS = {
         gemini: {
             name: 'Google Gemini',
-            defaultModel: 'gemini-2.5-flash',
+            defaultModel: 'gemini-3.8-flash',
             keyUrl: 'https://aistudio.google.com/app/apikey',
-            hint: 'מפתח חינמי מ-Google AI Studio (יש מכסה יומית חינמית).'
+            hint: 'מפתח חינמי מ-Google AI Studio (יש מכסה יומית חינמית). לחצו "רשימת מודלים" כדי לראות מה זמין למפתח שלכם.'
         },
         openai: {
             name: 'OpenAI (ChatGPT)',
@@ -83,7 +83,37 @@
             providerSelect.append($('<option>', {value: key, text: PROVIDERS[key].name, selected: key === settings.provider}));
         });
         var keyInput = $('<input type="password" class="form-control" dir="ltr" autocomplete="off" placeholder="API key">').val(settings.apiKey);
-        var modelInput = $('<input type="text" class="form-control" dir="ltr">').val(settings.model);
+        var modelInput = $('<input type="text" class="form-control" dir="ltr" list="cf-ai-models">').val(settings.model);
+        var modelList = $('<datalist id="cf-ai-models"></datalist>');
+        var modelsButton = $('<button type="button" class="btn btn-sm btn-outline-secondary mt-1">רשימת מודלים</button>').click(function () {
+            var test = {provider: providerSelect.val(), apiKey: keyInput.val().trim()};
+            if (!test.apiKey) {
+                status.text('יש להזין מפתח קודם.').addClass('text-danger');
+                return;
+            }
+            status.removeClass('text-danger text-success').text('טוען מודלים...');
+            listModels(test).then(function (models) {
+                modelList.empty();
+                models.forEach(function (model) {
+                    modelList.append($('<option>').attr('value', model));
+                });
+                var picker = $('<select class="form-control form-control-sm mt-1"></select>');
+                picker.append('<option value="">בחרו מודל...</option>');
+                models.forEach(function (model) {
+                    picker.append($('<option>', {value: model, text: model}));
+                });
+                picker.on('change', function () {
+                    if (this.value) {
+                        modelInput.val(this.value);
+                    }
+                });
+                modelsButton.after(picker);
+                status.addClass('text-success').text(models.length + ' מודלים זמינים למפתח זה');
+            }).catch(function (error) {
+                status.addClass('text-danger').text('שגיאה: ' + error.message);
+            });
+        });
+        var fastReplies = $('<input class="form-check-input" type="checkbox" id="cf-ai-fast">').prop('checked', settings.fast !== false);
         var hint = $('<div class="cf-mobile-small text-muted"></div>');
         var keyLink = $('<a target="_blank" rel="noopener"></a>');
         var shareGrades = $('<input class="form-check-input" type="checkbox" id="cf-ai-share-grades">').prop('checked', !!settings.shareGrades);
@@ -102,7 +132,8 @@
             '<p class="cf-mobile-small">העוזר מקבל את המערכת, המבחנים והמטלות שלכם ועונה בעברית. המפתח נשמר במכשיר זה בלבד, והבקשות נשלחות ישירות מהאפליקציה לספק שבחרתם (ועל חשבונכם, לפי תנאי הספק).</p>',
             $('<div class="form-group"></div>').append('<label class="small mb-0">ספק</label>', providerSelect, hint),
             $('<div class="form-group"></div>').append('<label class="small mb-0">מפתח API</label>', keyInput, $('<div class="cf-mobile-small"></div>').append(keyLink)),
-            $('<div class="form-group"></div>').append('<label class="small mb-0">מודל (אופציונלי)</label>', modelInput),
+            $('<div class="form-group"></div>').append('<label class="small mb-0">מודל</label>', modelInput, modelList, modelsButton),
+            $('<div class="form-check"></div>').append(fastReplies, '<label class="form-check-label small" for="cf-ai-fast">תשובות מהירות (בלי "חשיבה" ארוכה של המודל)</label>'),
             $('<div class="form-check"></div>').append(shareGrades, '<label class="form-check-label small" for="cf-ai-share-grades">לשתף גם את הציונים שלי עם העוזר</label>'),
             status);
 
@@ -115,7 +146,8 @@
                     var test = {
                         provider: providerSelect.val(),
                         apiKey: keyInput.val().trim(),
-                        model: modelInput.val().trim()
+                        model: modelInput.val().trim(),
+                        fast: fastReplies.prop('checked')
                     };
                     if (!test.apiKey) {
                         status.text('יש להזין מפתח.').addClass('text-danger');
@@ -136,6 +168,7 @@
                         provider: providerSelect.val(),
                         apiKey: keyInput.val().trim(),
                         model: modelInput.val().trim(),
+                        fast: fastReplies.prop('checked'),
                         shareGrades: shareGrades.prop('checked')
                     });
                     dialog.close();
@@ -207,20 +240,80 @@
         });
     }
 
+    function getJson(url, headers) {
+        return fetch(url, {headers: headers}).then(function (response) {
+            return response.json().then(function (data) {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status + (data && data.error && data.error.message ? ' - ' + data.error.message : ''));
+                }
+                return data;
+            });
+        }, function () {
+            throw new Error('אין תקשורת עם הספק (בדקו חיבור לאינטרנט).');
+        });
+    }
+
+    // The chat models the key can use, for the settings picker.
+    function listModels(settings) {
+        if (settings.provider === 'gemini') {
+            return getJson('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', {'x-goog-api-key': settings.apiKey}).then(function (data) {
+                return (data.models || []).filter(function (model) {
+                    return (model.supportedGenerationMethods || []).indexOf('generateContent') !== -1;
+                }).map(function (model) {
+                    return model.name.replace(/^models\//, '');
+                }).sort();
+            });
+        }
+        if (settings.provider === 'openai') {
+            return getJson('https://api.openai.com/v1/models', {Authorization: 'Bearer ' + settings.apiKey}).then(function (data) {
+                return (data.data || []).map(function (model) {
+                    return model.id;
+                }).filter(function (id) {
+                    return /^(gpt|o\d)/.test(id) && !/embedding|tts|whisper|audio|realtime|image|moderation|transcribe|search/.test(id);
+                }).sort();
+            });
+        }
+        if (settings.provider === 'anthropic') {
+            return getJson('https://api.anthropic.com/v1/models?limit=100', {
+                'x-api-key': settings.apiKey,
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true'
+            }).then(function (data) {
+                return (data.data || []).map(function (model) {
+                    return model.id;
+                }).sort();
+            });
+        }
+        return Promise.reject(new Error('ספק לא ידוע'));
+    }
+
     // messages: [{role: 'user'|'assistant', text}], returns the reply text.
     function callModel(settings, system, messages) {
         var model = modelOf(settings);
+        var fast = settings.fast !== false;
 
         if (settings.provider === 'gemini') {
-            return postJson('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent',
-                {'x-goog-api-key': settings.apiKey},
-                {
-                    system_instruction: {parts: [{text: system}]},
-                    contents: messages.map(function (message) {
-                        return {role: message.role === 'assistant' ? 'model' : 'user', parts: [{text: message.text}]};
-                    }),
-                    generationConfig: {temperature: 0.4, maxOutputTokens: 2048}
-                }).then(function (data) {
+            var geminiBody = {
+                system_instruction: {parts: [{text: system}]},
+                contents: messages.map(function (message) {
+                    return {role: message.role === 'assistant' ? 'model' : 'user', parts: [{text: message.text}]};
+                }),
+                generationConfig: {temperature: 0.4, maxOutputTokens: 4096}
+            };
+            if (fast) {
+                // Newer Gemini models reason before answering; keep replies quick.
+                geminiBody.generationConfig.thinkingConfig = {thinkingBudget: 0};
+            }
+            var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+            var geminiHeaders = {'x-goog-api-key': settings.apiKey};
+            return postJson(geminiUrl, geminiHeaders, geminiBody).catch(function (error) {
+                // Some models reject thinkingConfig; retry without it.
+                if (fast && /thinking|budget/i.test(error.message)) {
+                    delete geminiBody.generationConfig.thinkingConfig;
+                    return postJson(geminiUrl, geminiHeaders, geminiBody);
+                }
+                throw error;
+            }).then(function (data) {
                 var candidate = data.candidates && data.candidates[0];
                 var parts = candidate && candidate.content && candidate.content.parts;
                 var text = (parts || []).map(function (part) {
@@ -234,16 +327,25 @@
         }
 
         if (settings.provider === 'openai') {
+            var openaiBody = {
+                model: model,
+                messages: [{role: 'system', content: system}].concat(messages.map(function (message) {
+                    return {role: message.role, content: message.text};
+                }))
+            };
+            if (/^(o\d|gpt-5)/.test(model)) {
+                // Reasoning models: no temperature, and keep the reasoning short.
+                openaiBody.max_completion_tokens = 4096;
+                if (fast) {
+                    openaiBody.reasoning_effort = 'low';
+                }
+            } else {
+                openaiBody.temperature = 0.4;
+                openaiBody.max_tokens = 2048;
+            }
             return postJson('https://api.openai.com/v1/chat/completions',
                 {Authorization: 'Bearer ' + settings.apiKey},
-                {
-                    model: model,
-                    temperature: 0.4,
-                    max_tokens: 2048,
-                    messages: [{role: 'system', content: system}].concat(messages.map(function (message) {
-                        return {role: message.role, content: message.text};
-                    }))
-                }).then(function (data) {
+                openaiBody).then(function (data) {
                 var text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
                 if (!text) {
                     throw new Error('תשובה ריקה');
@@ -384,6 +486,22 @@
             }
         }
 
+        if (window.cheeseForkMoodle && window.cheeseForkMoodle.isConnected()) {
+            var materials = window.cheeseForkMoodle.getRecentMaterialsText();
+            if (materials) {
+                lines.push('');
+                lines.push('חומרים וקבצים שעלו ל-Moodle ב-' + 21 + ' הימים האחרונים (שם | סעיף | תאריך | קישור להורדה):');
+                lines.push(materials);
+            }
+            var unread = window.cheeseForkMoodle.getNewItems();
+            if (unread.length > 0) {
+                lines.push('');
+                lines.push('פריטים חדשים ב-Moodle שטרם נקראו: ' + unread.slice(0, 15).map(function (item) {
+                    return item.name + ' (' + (item.courseName || '').replace(/^\d{6,10}\s*[-–:]\s*/, '').slice(0, 25) + ')';
+                }).join(', '));
+            }
+        }
+
         if (options.includeGrades) {
             try {
                 var grades = JSON.parse(localStorage.getItem('cheeseForkGrades') || '{}').semesters || {};
@@ -412,7 +530,9 @@
         return 'אתה העוזר האישי של סטודנט/ית בטכניון בתוך האפליקציה CheeseFork (בניית מערכת שעות). ' +
             'ענה בעברית, בקצרה ולעניין, בטון חברי. השתמש רק במידע שבהקשר למטה כשעונים על שאלות על המערכת, המבחנים, המטלות או הציונים; ' +
             'אם משהו חסר, אמור זאת במקום לנחש. כשמבקשים תכנון (למשל שבוע לימודים), הצע תוכנית קונקרטית לפי הזמנים הפנויים, המבחנים והמטלות. ' +
-            'אפשר להשתמש ברשימות ובהדגשה (**טקסט**) בלבד, בלי כותרות.\n\n' +
+            'כשמבקשים חומר, מצגת, דף תרגול או קובץ, או כששואלים אם עלה משהו חדש ל-Moodle, השתמש ברשימת החומרים מ-Moodle וצרף את הקישורים בפורמט [שם הקובץ](קישור); ' +
+            'אם אין חומר מתאים ברשימה, אמור זאת. ' +
+            'אפשר להשתמש ברשימות, בהדגשה (**טקסט**) ובקישורים בלבד, בלי כותרות.\n\n' +
             '=== הקשר ===\n' + buildContext({includeGrades: !!settings.shareGrades});
     }
 
@@ -422,6 +542,9 @@
 
     var QUICK_PROMPTS = [
         'מה יש לי היום?',
+        'יש חומר להרצאה הבאה?',
+        'תן לי את דף התרגול הבא',
+        'מה עלה חדש ל-Moodle?',
         'מה הכי דחוף השבוע?',
         'מתי המבחן הבא ומה יש לי לפניו?',
         'תכנן לי שבוע לימודים לפי הזמנים הפנויים',
@@ -576,7 +699,12 @@
         if (inList) {
             html += '</ul>';
         }
-        return html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        // [text](https://...) links; the text was HTML-escaped above.
+        html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function (match, text, url) {
+            return '<a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener">' + text + '</a>';
+        });
+        return html;
     }
 
     // ---------------------------------------------------------------------

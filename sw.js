@@ -11,7 +11,7 @@
 //   fallback. Only the last few semesters are kept.
 // - Firebase, analytics and everything else: untouched.
 
-var VERSION = 'v5';
+var VERSION = 'v6';
 var SHELL_CACHE = 'cheesefork-shell-' + VERSION;
 var RUNTIME_CACHE = 'cheesefork-runtime-' + VERSION;
 var COURSES_CACHE = 'cheesefork-courses';
@@ -38,6 +38,8 @@ var SHELL = [
     'mobile/cheesefork-tasks.css',
     'mobile/cheesefork-ai.js',
     'mobile/cheesefork-ai.css',
+    'mobile/cheesefork-moodle.js',
+    'mobile/cheesefork-moodle.css',
     'components/course-select/course-select.css',
     'components/course-select/course-select.js',
     'components/course-button-list/course-button-list.css',

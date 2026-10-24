@@ -73,6 +73,7 @@
             scheduleRemindersSync();
             scheduleDayWidgetUpdate();
         });
+        $(document).on('cheesefork:moodle-changed', renderNow);
 
         $(window).on('resize', debounce(updateMobileMode, 200));
         updateMobileMode();
@@ -486,6 +487,13 @@
                 nextBlock.append(makeItemLine(next.item).addClass('d-inline-block'));
                 container.append(nextBlock);
             }
+
+            // Moodle material for the current lesson, otherwise for the next one.
+            var materialsFor = current.length > 0 ? current[0] : (next ? next.item : null);
+            var materials = makeMaterialsLine(materialsFor);
+            if (materials) {
+                container.append(materials);
+            }
         }
 
         renderExam();
@@ -493,6 +501,29 @@
         if (state.nowTimer === null) {
             state.nowTimer = setInterval(renderNow, 30 * 1000);
         }
+    }
+
+    function makeMaterialsLine(item) {
+        if (!item || !window.cheeseForkMoodle || !window.cheeseForkMoodle.isConnected()) {
+            return null;
+        }
+        var materials = window.cheeseForkMoodle.getMaterialsForLesson(item, 3);
+        if (materials.length === 0) {
+            return null;
+        }
+        var line = $('<div class="cf-mobile-materials"></div>');
+        line.append('<i class="fas fa-paperclip"></i> ', $('<span></span>').text('חומר ב-Moodle: '));
+        materials.forEach(function (material) {
+            line.append($('<a target="_blank" rel="noopener"></a>').prop('href', material.url).text(material.filename || material.name));
+        });
+        var unread = window.cheeseForkMoodle.countUnread();
+        if (unread > 0) {
+            line.append(' ', $('<a href="#" class="badge badge-info cf-mobile-badge"></a>').text(unread + ' חדשים').click(function (event) {
+                event.preventDefault();
+                window.cheeseForkMoodle.showFeedDialog();
+            }));
+        }
+        return line;
     }
 
     function dayOffsetText(offset, day) {

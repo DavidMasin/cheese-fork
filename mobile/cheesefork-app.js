@@ -79,7 +79,7 @@
                 renderGradesPanel();
             }
         });
-        $(document).on('cheesefork:tasks-changed', updateTasksBadge);
+        $(document).on('cheesefork:tasks-changed cheesefork:moodle-changed', updateTasksBadge);
         updateTasksBadge();
 
         selectTab(mobile.getView() === 'day' ? 'day' : 'week', true);
@@ -144,6 +144,9 @@
         var count = window.cheeseForkTasks.getTasks('open').filter(function (task) {
             return task.dueDate && (task.dueDate.getTime() < Date.now() || daysUntilDate(task.dueDate) <= 7);
         }).length;
+        if (window.cheeseForkMoodle) {
+            count += window.cheeseForkMoodle.countUnread();
+        }
         button.find('.cf-app-nav-badge').remove();
         if (count > 0) {
             button.append($('<span class="cf-app-nav-badge"></span>').text(count));
@@ -296,7 +299,12 @@
 
         content.append(makeSheetItem('fa-share-alt', 'שיתוף המערכת', mobile.shareSchedule));
 
-        if (!shared && window.cheeseForkTasks) {
+        if (!shared && window.cheeseForkMoodle) {
+            content.append(makeSheetItem('fa-link', 'חיבור ל-Moodle', window.cheeseForkMoodle.showConnectDialog, {
+                value: window.cheeseForkMoodle.isConnected() ? 'מחובר' :
+                    (window.cheeseForkTasks && window.cheeseForkTasks.isMoodleConnected() ? 'לוח שנה בלבד' : '')
+            }));
+        } else if (!shared && window.cheeseForkTasks) {
             content.append(makeSheetItem('fa-link', 'חיבור ל-Moodle (מטלות)', window.cheeseForkTasks.showMoodleDialog, {
                 value: window.cheeseForkTasks.isMoodleConnected() ? 'מחובר' : ''
             }));
@@ -469,6 +477,11 @@
             actions.append(makeActionButton('fa-graduation-cap', 'ציון', function () {
                 selectTab('grades');
             }));
+            if (window.cheeseForkMoodle) {
+                actions.append(makeActionButton('fa-folder-open', 'חומרי Moodle', function () {
+                    window.cheeseForkMoodle.showCourseMaterials(item.course, item.type);
+                }));
+            }
             if (window.cheeseForkAi) {
                 actions.append(makeActionButton('fa-magic', 'סיכום חוות דעת', function () {
                     window.cheeseForkAi.summarizeCourseFeedback(item.course, null);

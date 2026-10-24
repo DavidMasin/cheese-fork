@@ -67,6 +67,21 @@ Shown automatically on phones, tablets, the installed PWA and the native app
   links to its day in the Moodle calendar. Everything is stored on the
   device only. On the website a browser can't fetch Moodle directly, so
   paste the calendar file's content instead.
+- **Moodle account connection** (app) – עוד → חיבור ל-Moodle → "התחברות
+  דרך Moodle". The browser opens Technion's login; when Moodle sends the app
+  its personal web-service token (the same mechanism the official Moodle
+  app uses, over the `cheesefork://` URL scheme) the app reads your enrolled
+  courses, their files and assignments. You get: a **"חדש ב-Moodle" feed**
+  at the top of the tasks tab (files and activities added since the last
+  check, with download buttons), **material for the next lesson** on the now
+  card (slides for a lecture, the sheet for a tutorial, matched by file and
+  section names) and a **"חומרי Moodle"** button in the course sheet listing
+  all files of that course, **assignments with direct links** merged into
+  the tasks (replacing the calendar-export entries), and the materials are
+  given to the AI helper so it can answer "יש חומר להרצאה הבאה?" with the
+  actual download links. Checks run on launch/resume (at most every 30
+  minutes). A token can also be pasted by hand from Moodle's "מפתחות
+  אבטחה" page, which is the only route in a plain browser.
 - **AI helper** – bring your own key (Gemini has a free tier; OpenAI and
   Claude work too) under עוד → עוזר AI. The key stays on the device and
   requests go straight from the app to the provider. Three uses: the

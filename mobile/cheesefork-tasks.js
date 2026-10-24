@@ -128,6 +128,45 @@
         saveData(data);
     }
 
+    // Assignments from the Moodle web service. They replace calendar-export
+    // tasks for the same deadline (same course and due minute), keeping the
+    // done state.
+    function importAssignments(assignments) {
+        var data = loadData();
+        assignments.forEach(function (assignment) {
+            var existing = data.tasks[assignment.id] || {};
+            var duplicate = null;
+            Object.keys(data.tasks).forEach(function (id) {
+                var task = data.tasks[id];
+                if (task.source === 'moodle' && task.due && task.due === assignment.due &&
+                    (task.course === assignment.course || task.title === assignment.title ||
+                        (task.courseName && assignment.courseName && task.courseName === assignment.courseName))) {
+                    duplicate = task;
+                }
+            });
+            data.tasks[assignment.id] = $.extend({}, existing, assignment, {
+                done: existing.done || (duplicate ? duplicate.done : false) || false,
+                doneAt: existing.doneAt || (duplicate ? duplicate.doneAt : null) || null,
+                notes: existing.notes || (duplicate ? duplicate.notes : '') || '',
+                created: existing.created || Date.now()
+            });
+            if (duplicate) {
+                delete data.tasks[duplicate.id];
+            }
+        });
+        saveData(data);
+    }
+
+    function removeTasksBySource(source) {
+        var data = loadData();
+        Object.keys(data.tasks).forEach(function (id) {
+            if (data.tasks[id].source === source && !data.tasks[id].done) {
+                delete data.tasks[id];
+            }
+        });
+        saveData(data);
+    }
+
     // Adds a manual task ({title, due, course, courseName, notes}).
     function addTask(values) {
         upsertTask($.extend({
@@ -445,13 +484,26 @@
                 }
             });
         toolbar.append(syncButton);
-        toolbar.append($('<button type="button" class="btn btn-sm btn-outline-secondary" title="הגדרות Moodle"><i class="fas fa-cog"></i></button>').click(showMoodleDialog));
+        toolbar.append($('<button type="button" class="btn btn-sm btn-outline-secondary" title="הגדרות Moodle"><i class="fas fa-cog"></i></button>').click(function () {
+            if (window.cheeseForkMoodle) {
+                window.cheeseForkMoodle.showConnectDialog();
+            } else {
+                showMoodleDialog();
+            }
+        }));
         if (window.cheeseForkAi) {
             toolbar.append($('<button type="button" class="btn btn-sm btn-outline-secondary" title="חילוץ מטלות מטקסט בעזרת AI"><i class="fas fa-magic"></i></button>').click(function () {
                 window.cheeseForkAi.extractTasksDialog();
             }));
         }
         container.append(toolbar);
+
+        // "New on Moodle" feed (web service connection).
+        if (window.cheeseForkMoodle) {
+            var feed = $('<div></div>');
+            container.append(feed);
+            window.cheeseForkMoodle.renderFeed(feed);
+        }
 
         // Status line.
         var status = $('<div class="cf-tasks-status cf-mobile-small text-muted"></div>');
@@ -919,6 +971,8 @@
         importIcsText: importIcsText,
         parseIcs: parseIcs,
         addTask: addTask,
+        importAssignments: importAssignments,
+        removeTasksBySource: removeTasksBySource,
         isMoodleConnected: function () {
             return !!loadData().moodle.icsUrl;
         }
