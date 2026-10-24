@@ -117,6 +117,7 @@
             showRemindersDialog: showRemindersDialog,
             showToast: showToast,
             hapticImpact: hapticImpact,
+            openExternal: openExternal,
             registerBackHandler: function (handler) {
                 state.backHandlers.push(handler);
             },
@@ -1828,6 +1829,27 @@
         }
         state.backButtonPressedAt = now;
         showToast('לחצו שוב ליציאה');
+    }
+
+    // Opens a page outside the app. The native web view has no window.open
+    // support; a same-window navigation to another host is handed to the
+    // system browser by Capacitor, and the Browser plugin gives a custom tab.
+    function openExternal(url) {
+        var browser = platform.plugin('Browser');
+        if (browser) {
+            browser.open({url: url}).catch(function () {
+                window.location.href = url;
+            });
+            return;
+        }
+        if (platform.isNative) {
+            window.location.href = url;
+            return;
+        }
+        var opened = window.open(url, '_blank', 'noopener');
+        if (!opened) {
+            window.location.href = url;
+        }
     }
 
     function hapticImpact() {

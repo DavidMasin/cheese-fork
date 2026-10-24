@@ -491,7 +491,7 @@
                 api.openCourseInfo(item.course);
             }));
             actions.append(makeActionButton('fa-external-link-alt', 'Moodle', function () {
-                window.open('https://moodle.technion.ac.il/course/search.php?search=' + encodeURIComponent(item.course), '_blank', 'noopener');
+                mobile.openExternal('https://moodle.technion.ac.il/course/search.php?search=' + encodeURIComponent(item.course));
             }));
             actions.append(makeActionButton('fa-graduation-cap', 'ציון', function () {
                 selectTab('grades');

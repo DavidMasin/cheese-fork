@@ -130,16 +130,109 @@
         return text;
     }
 
+    // Asks Moodle (public endpoint, same as the official app) for its real
+    // address and login URL, e.g. moodle.technion.ac.il -> moodle26.technion.ac.il.
+    function discoverSite(siteUrl) {
+        var base = siteUrl.replace(/\/$/, '');
+        var url = base + '/lib/ajax/service-nologin.php?args=' +
+            encodeURIComponent('[{"index":0,"methodname":"tool_mobile_get_public_config","args":{}}]');
+        var http = platform.plugin('CapacitorHttp');
+        var request = http
+            ? http.get({url: url, connectTimeout: 15000, readTimeout: 20000}).then(function (response) {
+                return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+            })
+            : fetch(url).then(function (response) {
+                return response.json();
+            });
+        return request.then(function (result) {
+            var config = result && result[0] && !result[0].error ? result[0].data : null;
+            if (!config || !config.wwwroot) {
+                throw new Error('no-config');
+            }
+            return {
+                wwwroot: String(config.wwwroot).replace(/\/$/, ''),
+                launchurl: config.launchurl || (String(config.wwwroot).replace(/\/$/, '') + '/admin/tool/mobile/launch.php'),
+                mobileEnabled: config.enablemobilewebservice !== 0 && config.enablemobilewebservice !== false,
+                forcedScheme: config.forcedurlscheme || null
+            };
+        });
+    }
+
     function connectViaBrowser() {
         trackEvent('moodle-sso-start');
         var data = loadData();
-        data.passport = randomHex(32);
-        data.pendingSite = data.siteUrl;
-        saveData(data);
+        var waiting = showWaitingDialog();
 
-        var url = data.siteUrl.replace(/\/$/, '') + '/admin/tool/mobile/launch.php' +
-            '?service=moodle_mobile_app&passport=' + data.passport + '&urlscheme=cheesefork';
-        window.open(url, '_blank', 'noopener');
+        discoverSite(data.siteUrl).catch(function () {
+            return {wwwroot: data.siteUrl.replace(/\/$/, ''), launchurl: data.siteUrl.replace(/\/$/, '') + '/admin/tool/mobile/launch.php', mobileEnabled: true, forcedScheme: null};
+        }).then(function (config) {
+            if (!config.mobileEnabled) {
+                waiting.close();
+                toast('שירות האפליקציות של Moodle כבוי באתר זה');
+                return;
+            }
+            var latest = loadData();
+            latest.passport = randomHex(32);
+            latest.pendingSite = config.wwwroot;
+            latest.siteUrl = config.wwwroot;
+            saveData(latest);
+
+            var scheme = config.forcedScheme || 'cheesefork';
+            var url = config.launchurl + '?service=moodle_mobile_app&passport=' + latest.passport + '&urlscheme=' + encodeURIComponent(scheme);
+            waiting.setUrl(url, scheme !== 'cheesefork');
+            if (mobile) {
+                mobile.openExternal(url);
+            } else {
+                window.open(url, '_blank', 'noopener');
+            }
+        });
+    }
+
+    function showWaitingDialog() {
+        var link = $('<a class="btn btn-outline-primary btn-sm d-none" target="_blank" rel="noopener"><i class="fas fa-external-link-alt"></i> פתיחת ההתחברות ידנית</a>');
+        var note = $('<div class="cf-mobile-small text-muted mt-2"></div>');
+        var tokenInput = $('<input type="password" class="form-control form-control-sm mt-2" dir="ltr" placeholder="או הדביקו כאן מפתח מ-Moodle">');
+        var dialog = BootstrapDialog.show({
+            title: 'התחברות ל-Moodle',
+            message: $('<div></div>').append(
+                '<p>הדפדפן נפתח להזדהות טכניונית. אחרי ההתחברות Moodle יחזיר אתכם לאפליקציה (אם Android שואל, בחרו "CheeseFork").</p>',
+                link, note, tokenInput),
+            buttons: [{
+                label: 'חיבור עם מפתח',
+                action: function (d) {
+                    var token = tokenInput.val().trim();
+                    if (!token) {
+                        return;
+                    }
+                    d.close();
+                    connectWithToken(token, null, loadData().pendingSite || loadData().siteUrl);
+                }
+            }, {
+                label: 'סגור',
+                cssClass: 'btn-primary',
+                action: function (d) {
+                    d.close();
+                }
+            }]
+        });
+        var handler = function () {
+            dialog.close();
+        };
+        $(document).one('cheesefork:moodle-synced', handler);
+        return {
+            close: function () {
+                $(document).off('cheesefork:moodle-synced', handler);
+                dialog.close();
+            },
+            setUrl: function (url, forcedScheme) {
+                link.prop('href', url).removeClass('d-none');
+                if (forcedScheme) {
+                    note.text('האתר מחייב את אפליקציית Moodle הרשמית לקבלת המפתח. אפשר במקום זאת להדביק מפתח ידנית.');
+                } else {
+                    note.text('אם הדפדפן לא נפתח, לחצו על הכפתור למעלה.');
+                }
+            }
+        };
     }
 
     // Handles cheesefork://token=<base64(siteid:::token:::privatetoken)>.
@@ -174,6 +267,10 @@
             return true;
         }
 
+        var browser = platform.plugin('Browser');
+        if (browser) {
+            browser.close().catch(function () {});
+        }
         connectWithToken(parts[1], parts[2] || null, data.pendingSite);
         return true;
     }
@@ -821,7 +918,6 @@
                     dialog.close();
                     if (platform.isNative) {
                         connectViaBrowser();
-                        toast('התחברו בדפדפן, ואז בחרו "פתח ב-CheeseFork"');
                     } else {
                         BootstrapDialog.show({
                             title: 'חיבור ל-Moodle',
