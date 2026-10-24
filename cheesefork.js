@@ -1,7 +1,7 @@
 'use strict';
 
 /* global introJs, ColorHash, BootstrapDialog, ics, JsDiff, firebase, firebaseui, gtag */
-/* global CourseManager, CourseSelect, CourseButtonList, CourseExamInfo, CourseCalendar, CourseFeedback */
+/* global CourseManager, CourseSelect, CourseButtonList, CourseExamInfo, CourseCalendar, CourseFeedback, CourseGrades */
 /* global courses_from_rishum, availableSemesters, currentSemester, scheduleSharingUserId */
 
 function cheeseForkMain() {
@@ -21,6 +21,7 @@ function cheeseForkMain() {
     var courseButtonList = null;
     var courseExamInfo = null;
     var courseCalendar = null;
+    var courseGrades = null;
 
     if (!crawlersInfo()) {
         cheeseforkInit();
@@ -87,6 +88,7 @@ function cheeseForkMain() {
         } else {
             $('#top-navbar-home').removeClass('d-none');
             $('#top-navbar-share').addClass('d-none');
+            $('#top-navbar-grades').addClass('d-none');
             $('#top-navbar-semester').addClass('d-none');
             $('#course-select').hide();
         }
@@ -192,6 +194,16 @@ function cheeseForkMain() {
             }
         });
 
+        courseGrades = new CourseGrades({
+            courseManager: courseManager,
+            currentSemester: currentSemester,
+            semesterFriendlyName: semesterFriendlyName,
+            copyToClipboard: copyToClipboard,
+            getSelectedCourses: function () {
+                return courseButtonList.getCourseNumbers(true);
+            }
+        });
+
         mobileApiInit();
 
         $('#top-navbar-supported-content').removeClass('top-navbar-content-uninitialized');
@@ -266,6 +278,9 @@ function cheeseForkMain() {
             },
             getSelectedCourses: function () {
                 return courseButtonList.getCourseNumbers(true);
+            },
+            openGrades: function () {
+                courseGrades.openDialog();
             },
             // Lessons and custom events which are part of the schedule.
             getSelectedEvents: function () {
@@ -822,6 +837,15 @@ function cheeseForkMain() {
                         }
                     }]
                 });
+            });
+
+            $('#top-navbar-grades').click(function (event) {
+                event.preventDefault();
+
+                gtag('event', 'navbar-grades');
+
+                $(this).tooltip('hide');
+                courseGrades.openDialog();
             });
 
             $('#top-navbar-undo').click(function (event) {
@@ -2200,6 +2224,7 @@ function cheeseForkMain() {
         $('#top-navbar-home').removeClass('d-none');
         $('#top-navbar-share').addClass('d-none');
         $('#top-navbar-export').addClass('d-none');
+        $('#top-navbar-grades').addClass('d-none');
         $('#top-navbar-semester').addClass('d-none');
         $('#course-select').hide();
 

@@ -4,4 +4,7 @@
     <string name="title_activity_main">CheeseFork</string>
     <string name="package_name">cf.cheesefork.app</string>
     <string name="custom_url_scheme">cf.cheesefork.app</string>
+    <string name="widget_name">השיעורים של היום</string>
+    <string name="widget_description">מה יש לי היום, איפה ועם מי</string>
+    <string name="widget_empty">אין שיעורים</string>
 </resources>

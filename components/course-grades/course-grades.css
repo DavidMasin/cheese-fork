@@ -1,0 +1,84 @@
+.course-grades-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+
+.course-grades-stats {
+    margin-bottom: 0.75rem;
+}
+
+.course-grades-stat {
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    text-align: center;
+    height: 100%;
+}
+
+.course-grades-stat-title {
+    font-size: 0.8rem;
+    opacity: 0.8;
+}
+
+.course-grades-stat-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.course-grades-stat-sub {
+    font-size: 0.75rem;
+    opacity: 0.75;
+}
+
+.course-grades-semester-row {
+    margin-bottom: 0.5rem;
+}
+
+.course-grades-semester {
+    width: auto;
+    display: inline-block;
+}
+
+.course-grades-table td,
+.course-grades-table th {
+    vertical-align: middle;
+}
+
+.course-grades-number {
+    opacity: 0.7;
+    font-size: 0.85em;
+}
+
+.course-grades-points-col {
+    width: 3.5rem;
+    white-space: nowrap;
+}
+
+.course-grades-grade-col {
+    width: 7rem;
+}
+
+.course-grades-input {
+    text-align: center;
+}
+
+.course-grades-add-title {
+    font-weight: 600;
+    margin: 0.5rem 0 0.25rem 0;
+}
+
+/* Privacy: blur every grade and average when hidden. */
+.course-grades-hidden .course-grades-value {
+    filter: blur(6px);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.course-grades-hidden .course-grades-value:focus {
+    filter: none;
+}

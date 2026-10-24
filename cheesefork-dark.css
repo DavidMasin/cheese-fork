@@ -220,4 +220,8 @@ img[src="assets/icon-students.png"] {
     color: #212529;
 }
 
+.course-grades-stat {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
 }

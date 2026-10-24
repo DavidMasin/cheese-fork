@@ -45,6 +45,19 @@ Shown automatically on phones, tablets, the installed PWA and the native app
   cached, so the app opens and shows your schedule without reception (lecture
   halls, trains...). Signed-in users also get a local copy of their Firestore
   data. An "offline" badge shows when the network is down.
+- **Private grade book** (all platforms, "ציונים" in the menu) – enter a
+  grade per course and get the semester, academic-year and cumulative
+  weighted averages (by credit points; "עבר"/"פטור"/"נכשל" are supported).
+  Grades are stored only on the device, never in the shared schedule, and
+  live in their own dialog with a "hide grades" blur toggle, so showing
+  someone your schedule never shows your grades. Backup/restore moves them
+  between devices as text.
+- **Home screen widget** (Android) – "השיעורים של היום": today's lessons
+  with time, course, type, room and lecturer, the current one highlighted;
+  after the last lesson it switches to the next day with lessons. Long-press
+  the home screen → Widgets → CheeseFork. It refreshes whenever the schedule
+  changes in the app and every 30 minutes. (iOS widgets need a Mac/Xcode
+  and are not included.)
 - **Install prompts**, dark-mode-aware status bar, hardware back button
   handling and a light haptic tap when adding/removing courses in the native
   app.

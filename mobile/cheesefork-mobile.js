@@ -113,6 +113,7 @@
         state.lastCourseCount = courseCount;
 
         scheduleRemindersSync();
+        scheduleDayWidgetUpdate();
     }
 
     function isMobileMode() {
@@ -164,6 +165,12 @@
         }
 
         actions.append(makeActionButton('cf-mobile-free-button', 'fa-user-friends', 'פנויים יחד', showFreeTimeDialog));
+
+        if (!api.isViewingSharedSchedule()) {
+            actions.append(makeActionButton('cf-mobile-grades-button', 'fa-graduation-cap', 'ציונים', function () {
+                api.openGrades();
+            }));
+        }
 
         actions.append(makeActionButton('cf-mobile-install-button', 'fa-mobile-alt', 'התקנה', installApp).addClass('d-none'));
 
@@ -1383,6 +1390,48 @@
                 alert('קביעת התזכורות נכשלה: ' + (error && error.message));
             }
         });
+    }
+
+    // ---------------------------------------------------------------------
+    // Android home screen widget ("today's lessons")
+    // ---------------------------------------------------------------------
+
+    function scheduleDayWidgetUpdate() {
+        if (!platform.isNative || platform.os !== 'android') {
+            return;
+        }
+        if (state.widgetTimer) {
+            clearTimeout(state.widgetTimer);
+        }
+        state.widgetTimer = setTimeout(updateDayWidget, 1500);
+    }
+
+    function updateDayWidget() {
+        var widget = platform.plugin('DayWidget');
+        if (!widget) {
+            return;
+        }
+
+        var semester = api.availableSemesters[api.currentSemester] || {};
+        var items = api.isViewingSharedSchedule() ? [] : getScheduleItems().map(function (item) {
+            return {
+                day: item.day,
+                startMin: item.startMin,
+                endMin: item.endMin,
+                name: item.name,
+                type: item.isCustom ? '' : item.type,
+                location: formatLocation(item),
+                staff: item.staff,
+                color: item.color
+            };
+        });
+
+        widget.update({
+            semesterStart: semester.start || '',
+            semesterEnd: semester.end || '',
+            daysOff: state.daysOff || [],
+            items: items
+        }).catch(function () {});
     }
 
     // ---------------------------------------------------------------------
