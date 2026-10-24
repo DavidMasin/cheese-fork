@@ -19,6 +19,7 @@
     var TABS = [
         {id: 'week', icon: 'fa-th', label: 'מערכת'},
         {id: 'day', icon: 'fa-calendar-day', label: 'היום'},
+        {id: 'tasks', icon: 'fa-tasks', label: 'מטלות'},
         {id: 'grades', icon: 'fa-graduation-cap', label: 'ציונים'},
         {id: 'more', icon: 'fa-ellipsis-h', label: 'עוד'}
     ];
@@ -52,6 +53,9 @@
         initSwipe();
 
         mobile.onLessonTap = showCourseSheet;
+        mobile.openTasks = function () {
+            selectTab('tasks');
+        };
         mobile.onViewChanged = function (view) {
             if ((view === 'day' || view === 'week') && state.tab !== view && (state.tab === 'day' || state.tab === 'week')) {
                 selectTab(view, true);
@@ -74,6 +78,8 @@
                 renderGradesPanel();
             }
         });
+        $(document).on('cheesefork:tasks-changed', updateTasksBadge);
+        updateTasksBadge();
 
         selectTab(mobile.getView() === 'day' ? 'day' : 'week', true);
     }
@@ -96,7 +102,7 @@
     function buildTabs() {
         var nav = $('<nav id="cf-app-nav" class="cf-app-nav"></nav>');
         TABS.forEach(function (tab) {
-            if (tab.id === 'grades' && api.isViewingSharedSchedule()) {
+            if ((tab.id === 'grades' || tab.id === 'tasks') && api.isViewingSharedSchedule()) {
                 return;
             }
             var button = $('<button type="button" class="cf-app-nav-item"></button>')
@@ -116,7 +122,28 @@
     }
 
     function buildPanels() {
-        $('#course-calendar').before('<div id="cf-app-grades" class="col-md-10 d-none"></div>');
+        $('#course-calendar').before('<div id="cf-app-tasks" class="col-md-10 d-none"></div><div id="cf-app-grades" class="col-md-10 d-none"></div>');
+    }
+
+    function updateTasksBadge() {
+        var button = $('#cf-app-nav [data-tab=tasks]');
+        if (button.length === 0 || !window.cheeseForkTasks) {
+            return;
+        }
+        var count = window.cheeseForkTasks.getTasks('open').filter(function (task) {
+            return task.dueDate && (task.dueDate.getTime() < Date.now() || daysUntilDate(task.dueDate) <= 7);
+        }).length;
+        button.find('.cf-app-nav-badge').remove();
+        if (count > 0) {
+            button.append($('<span class="cf-app-nav-badge"></span>').text(count));
+        }
+    }
+
+    function daysUntilDate(date) {
+        var now = new Date();
+        var a = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        var b = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        return Math.round((b - a) / (24 * 3600 * 1000));
     }
 
     function selectTab(tab, silent) {
@@ -127,16 +154,23 @@
 
         var sidebarParts = $('#right-content-bar [data-intro], #general-info, #course-button-list, #course-exam-info-wrapper');
         var gradesPanel = $('#cf-app-grades');
+        var tasksPanel = $('#cf-app-tasks');
 
-        if (tab === 'grades') {
+        if (tab === 'grades' || tab === 'tasks') {
             sidebarParts.addClass('cf-app-hidden');
             $('#cf-mobile-card').addClass('cf-app-hidden');
             $('#course-calendar').addClass('cf-mobile-hidden');
             $('#cf-mobile-agenda').addClass('d-none');
-            gradesPanel.removeClass('d-none');
-            renderGradesPanel();
+            gradesPanel.toggleClass('d-none', tab !== 'grades');
+            tasksPanel.toggleClass('d-none', tab !== 'tasks');
+            if (tab === 'grades') {
+                renderGradesPanel();
+            } else if (window.cheeseForkTasks) {
+                window.cheeseForkTasks.renderPanel(tasksPanel);
+            }
         } else {
             gradesPanel.addClass('d-none');
+            tasksPanel.addClass('d-none');
             $('#cf-mobile-card').removeClass('cf-app-hidden');
             if (tab === 'day') {
                 sidebarParts.addClass('cf-app-hidden');
@@ -250,6 +284,12 @@
         }
 
         content.append(makeSheetItem('fa-share-alt', 'שיתוף המערכת', mobile.shareSchedule));
+
+        if (!shared && window.cheeseForkTasks) {
+            content.append(makeSheetItem('fa-link', 'חיבור ל-Moodle (מטלות)', window.cheeseForkTasks.showMoodleDialog, {
+                value: window.cheeseForkTasks.isMoodleConnected() ? 'מחובר' : ''
+            }));
+        }
 
         if (!shared) {
             content.append(makeSheetItem('fa-file-import', 'ייבוא מערכת מקישור', function () {

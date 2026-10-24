@@ -52,12 +52,27 @@ Shown automatically on phones, tablets, the installed PWA and the native app
   live in their own dialog with a "hide grades" blur toggle, so showing
   someone your schedule never shows your grades. Backup/restore moves them
   between devices as text.
+- **App shell** (native app, or any browser with `?appui=1`) – bottom
+  navigation (מערכת / היום / מטלות / ציונים / עוד), a "more" sheet with
+  everything from the website menu, a course sheet when tapping a lesson in
+  the day view (room on the map, lecturer, exams, syllabus, course info,
+  Moodle), swipe between days, and no website popups.
+- **Tasks (מטלות)** – deadlines grouped by overdue / today / tomorrow / this
+  week / later, with done state, manual tasks and notes, the next deadline on
+  the now card and the widget, and reminders the evening before and the
+  morning of each deadline. **Moodle import**: in Moodle open לוח שנה →
+  ייצוא לוח שנה, choose "כל האירועים" and "60 הימים הקרובים", press "קבלת
+  כתובת לוח שנה", and paste the URL under מטלות → ⚙ (or עוד → חיבור
+  ל-Moodle). The app re-imports on every launch (at most hourly); each task
+  links to its day in the Moodle calendar. Everything is stored on the
+  device only. On the website a browser can't fetch Moodle directly, so
+  paste the calendar file's content instead.
 - **Home screen widget** (Android) – "השיעורים של היום": today's lessons
   with time, course, type, room and lecturer, the current one highlighted;
   after the last lesson it switches to the next day with lessons. Long-press
   the home screen → Widgets → CheeseFork. It refreshes whenever the schedule
-  changes in the app and every 30 minutes. (iOS widgets need a Mac/Xcode
-  and are not included.)
+  changes in the app and every 30 minutes, and shows the next three
+  deadlines underneath. (iOS widgets need a Mac/Xcode and are not included.)
 - **Install prompts**, dark-mode-aware status bar, hardware back button
   handling and a light haptic tap when adding/removing courses in the native
   app.

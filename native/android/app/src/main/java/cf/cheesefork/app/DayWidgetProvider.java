@@ -39,6 +39,8 @@ public class DayWidgetProvider extends AppWidgetProvider {
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_day);
         views.setTextViewText(R.id.widget_title, content.title);
         views.setTextViewText(R.id.widget_subtitle, content.subtitle);
+        views.setTextViewText(R.id.widget_tasks, content.tasks);
+        views.setViewVisibility(R.id.widget_tasks, content.tasks.isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE);
 
         Intent serviceIntent = new Intent(context, DayWidgetService.class);
         serviceIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);

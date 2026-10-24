@@ -48,7 +48,8 @@
     <ListView
         android:id="@+id/widget_list"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:layout_marginTop="6dp"
         android:divider="@null"
         android:dividerHeight="0dp"
@@ -57,10 +58,24 @@
     <TextView
         android:id="@+id/widget_empty"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:gravity="center"
         android:textColor="@color/widget_text_secondary"
         android:textSize="13sp"
         android:textDirection="rtl"
         android:text="@string/widget_empty" />
+
+    <TextView
+        android:id="@+id/widget_tasks"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="@color/widget_text"
+        android:textSize="11sp"
+        android:textDirection="rtl"
+        android:textAlignment="viewStart"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:visibility="gone" />
 </LinearLayout>

@@ -39,7 +39,35 @@ public class DayWidgetData {
     public static class Content {
         public String title = "";
         public String subtitle = "";
+        public String tasks = "";
         public List<Row> rows = new ArrayList<>();
+    }
+
+    private static String tasksLine(JSONObject data) {
+        JSONArray tasks = data.optJSONArray("tasks");
+        if (tasks == null || tasks.length() == 0) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder("מטלות: ");
+        for (int i = 0; i < tasks.length(); i++) {
+            JSONObject task = tasks.optJSONObject(i);
+            if (task == null) {
+                continue;
+            }
+            if (i > 0) {
+                builder.append(" · ");
+            }
+            builder.append(task.optString("title", ""));
+            int daysLeft = task.optInt("daysLeft", -1);
+            if (daysLeft == 0) {
+                builder.append(" (היום)");
+            } else if (daysLeft == 1) {
+                builder.append(" (מחר)");
+            } else if (daysLeft > 1) {
+                builder.append(" (").append(daysLeft).append(" ימים)");
+            }
+        }
+        return builder.toString();
     }
 
     public static Content load(Context context) {
@@ -55,6 +83,7 @@ public class DayWidgetData {
 
         try {
             JSONObject data = new JSONObject(json);
+            content.tasks = tasksLine(data);
             JSONArray items = data.optJSONArray("items");
             if (items == null) {
                 items = new JSONArray();

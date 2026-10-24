@@ -24,7 +24,8 @@
 
     var LESSON_REMINDER_ID_BASE = 500000;
     var EXAM_REMINDER_ID_BASE = 600000;
-    var REMINDER_ID_END = 700000;
+    var TASK_REMINDER_ID_BASE = 700000;
+    var REMINDER_ID_END = 800000;
 
     var state = {
         view: 'week',
@@ -67,6 +68,11 @@
         buildAgenda();
 
         $(document).on('cheesefork:schedule-changed', onScheduleChanged);
+        $(document).on('cheesefork:tasks-changed', function () {
+            renderNow();
+            scheduleRemindersSync();
+            scheduleDayWidgetUpdate();
+        });
 
         $(window).on('resize', debounce(updateMobileMode, 200));
         updateMobileMode();
@@ -175,6 +181,7 @@
         card.append('<div class="cf-mobile-status"></div>');
         card.append('<div class="cf-mobile-now"></div>');
         card.append('<div class="cf-mobile-exam"></div>');
+        card.append('<div class="cf-mobile-task d-none"></div>');
 
         var actions = $('<div class="cf-mobile-actions"></div>');
 
@@ -199,6 +206,11 @@
         if (!api.isViewingSharedSchedule()) {
             actions.append(makeActionButton('cf-mobile-grades-button', 'fa-graduation-cap', 'ציונים', function () {
                 api.openGrades();
+            }));
+            actions.append(makeActionButton('cf-mobile-tasks-button', 'fa-tasks', 'מטלות', function () {
+                if (window.cheeseForkTasks) {
+                    window.cheeseForkTasks.showTasksDialog();
+                }
             }));
         }
 
@@ -547,7 +559,56 @@
         return 'בעוד ' + exam.daysLeft + ' ימים';
     }
 
+    function renderTask() {
+        var container = $('#cf-mobile-card .cf-mobile-task').empty();
+        if (!window.cheeseForkTasks || api.isViewingSharedSchedule()) {
+            container.addClass('d-none');
+            return;
+        }
+
+        var upcoming = window.cheeseForkTasks.getUpcoming();
+        var overdue = window.cheeseForkTasks.getTasks('open').filter(function (task) {
+            return task.dueDate && task.dueDate.getTime() < Date.now();
+        });
+
+        if (upcoming.length === 0 && overdue.length === 0) {
+            container.addClass('d-none');
+            return;
+        }
+
+        container.removeClass('d-none');
+        if (overdue.length > 0) {
+            container.append($('<span class="badge badge-danger cf-mobile-badge"></span>').text(overdue.length + ' באיחור'), ' ');
+        }
+        if (upcoming.length > 0) {
+            var task = upcoming[0];
+            var days = daysBetween(new Date(), task.dueDate);
+            var when = days === 0 ? 'היום ' + moment(task.dueDate).format('HH:mm') :
+                days === 1 ? 'מחר' : moment(task.dueDate).format('DD/MM') + ' · בעוד ' + days + ' ימים';
+            container.append(
+                '<i class="fas fa-tasks"></i> ',
+                $('<span></span>').text('המטלה הבאה: '),
+                $('<span class="cf-mobile-item-name"></span>').text(task.title),
+                $('<span></span>').text(' · ' + when));
+            var week = upcoming.filter(function (item) {
+                return daysBetween(new Date(), item.dueDate) <= 7;
+            }).length;
+            if (week > 1) {
+                container.append(' ', $('<span class="badge badge-light cf-mobile-badge"></span>').text(week + ' השבוע'));
+            }
+        }
+
+        container.css('cursor', 'pointer').off('click').on('click', function () {
+            if (window.cheeseForkMobile && window.cheeseForkMobile.openTasks) {
+                window.cheeseForkMobile.openTasks();
+            } else {
+                window.cheeseForkTasks.showTasksDialog();
+            }
+        });
+    }
+
     function renderExam() {
+        renderTask();
         var container = $('#cf-mobile-card .cf-mobile-exam').empty();
 
         var upcoming = getExams().filter(function (exam) {
@@ -1209,7 +1270,7 @@
     // ---------------------------------------------------------------------
 
     function getReminderSettings() {
-        var defaults = {enabled: false, minutesBefore: 15, exams: true};
+        var defaults = {enabled: false, minutesBefore: 15, exams: true, tasks: true};
         try {
             return $.extend(defaults, JSON.parse(storageGet('cfMobileReminders') || '{}'));
         } catch (e) {
@@ -1244,6 +1305,10 @@
                 '<input class="form-check-input" type="checkbox" id="cf-reminders-exams">' +
                 '<label class="form-check-label" for="cf-reminders-exams">תזכורת יום לפני כל מבחן ובבוקר המבחן</label>' +
             '</div>' +
+            '<div class="form-check mb-3">' +
+                '<input class="form-check-input" type="checkbox" id="cf-reminders-tasks">' +
+                '<label class="form-check-label" for="cf-reminders-tasks">תזכורת ערב לפני ובבוקר של כל מטלה (Moodle וידניות)</label>' +
+            '</div>' +
             '<div class="cf-mobile-small text-muted">' +
                 'התזכורות מחושבות מהמערכת שבניתם ומתעדכנות אוטומטית בכל שינוי. ' +
                 'תזכורות לשיעורים פעילות רק במהלך הסמסטר. ' +
@@ -1253,6 +1318,7 @@
         form.find('#cf-reminders-enabled').prop('checked', settings.enabled);
         form.find('#cf-reminders-minutes').val(String(settings.minutesBefore));
         form.find('#cf-reminders-exams').prop('checked', settings.exams);
+        form.find('#cf-reminders-tasks').prop('checked', settings.tasks);
 
         // Android 12+: without the "alarms & reminders" permission the system
         // may deliver the reminders a few minutes late.
@@ -1282,7 +1348,8 @@
                     var newSettings = {
                         enabled: form.find('#cf-reminders-enabled').prop('checked'),
                         minutesBefore: parseInt(form.find('#cf-reminders-minutes').val(), 10),
-                        exams: form.find('#cf-reminders-exams').prop('checked')
+                        exams: form.find('#cf-reminders-exams').prop('checked'),
+                        tasks: form.find('#cf-reminders-tasks').prop('checked')
                     };
                     setReminderSettings(newSettings);
                     dialog.close();
@@ -1396,6 +1463,9 @@
         if (settings.exams) {
             wanted = wanted.concat(buildExamNotifications());
         }
+        if (settings.tasks && window.cheeseForkTasks) {
+            wanted = wanted.concat(window.cheeseForkTasks.buildNotifications(TASK_REMINDER_ID_BASE));
+        }
 
         // iOS allows up to 64 pending notifications per app.
         wanted = wanted.slice(0, 60);
@@ -1481,11 +1551,23 @@
             };
         });
 
+        var tasks = [];
+        if (window.cheeseForkTasks && !api.isViewingSharedSchedule()) {
+            tasks = window.cheeseForkTasks.getUpcoming().slice(0, 3).map(function (task) {
+                return {
+                    title: task.title,
+                    due: moment(task.dueDate).format('DD/MM HH:mm'),
+                    daysLeft: daysBetween(new Date(), task.dueDate)
+                };
+            });
+        }
+
         widget.update({
             semesterStart: semester.start || '',
             semesterEnd: semester.end || '',
             daysOff: state.daysOff || [],
-            items: items
+            items: items,
+            tasks: tasks
         }).catch(function () {});
     }
 
