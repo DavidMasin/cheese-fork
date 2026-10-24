@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CheeseFork</string>
+    <string name="title_activity_main">CheeseFork</string>
+    <string name="package_name">cf.cheesefork.app</string>
+    <string name="custom_url_scheme">cf.cheesefork.app</string>
+</resources>

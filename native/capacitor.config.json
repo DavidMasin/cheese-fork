@@ -1,0 +1,36 @@
+{
+  "appId": "cf.cheesefork.app",
+  "appName": "CheeseFork",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#f8f9fa"
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#f8f9fa",
+    "scheme": "CheeseFork"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "launchFadeOutDuration": 200,
+      "backgroundColor": "#f8f9fa",
+      "androidScaleType": "CENTER_INSIDE",
+      "showSpinner": false,
+      "splashFullScreen": false,
+      "splashImmersive": false
+    },
+    "StatusBar": {
+      "overlaysWebView": false,
+      "style": "LIGHT",
+      "backgroundColor": "#f8f9fa"
+    },
+    "LocalNotifications": {
+      "iconColor": "#FFC107"
+    }
+  }
+}

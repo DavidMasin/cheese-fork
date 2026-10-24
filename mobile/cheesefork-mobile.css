@@ -1,0 +1,248 @@
+/* Mobile layer: the "now & next" card, day agenda and native app tweaks. */
+
+/* The card is only shown on phones/tablets, the installed PWA and the native app. */
+#cf-mobile-card {
+    display: none;
+}
+
+body.cf-mobile-mode #cf-mobile-card {
+    display: block;
+}
+
+.cf-mobile-card {
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.75rem;
+    background-color: rgba(255, 193, 7, 0.08);
+    font-size: 0.85rem;
+}
+
+.cf-mobile-status {
+    margin-bottom: 0.4rem;
+}
+
+.cf-mobile-status .badge {
+    margin-left: 0.25rem;
+}
+
+.cf-mobile-headline {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.cf-mobile-current,
+.cf-mobile-next {
+    margin-top: 0.3rem;
+    line-height: 1.4;
+}
+
+.cf-mobile-badge {
+    font-size: 0.75rem;
+    vertical-align: middle;
+}
+
+.cf-mobile-item {
+    line-height: 1.4;
+}
+
+.cf-mobile-item-color {
+    display: inline-block;
+    width: 0.65rem;
+    height: 0.65rem;
+    border-radius: 50%;
+    margin-left: 0.3rem;
+    vertical-align: middle;
+}
+
+.cf-mobile-item-name {
+    font-weight: 600;
+}
+
+.cf-mobile-item-type,
+.cf-mobile-item-time {
+    opacity: 0.8;
+}
+
+.cf-mobile-location {
+    white-space: nowrap;
+}
+
+.cf-mobile-small {
+    font-size: 0.78rem;
+    opacity: 0.85;
+}
+
+.cf-mobile-progress {
+    height: 0.3rem;
+    margin-top: 0.3rem;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.cf-mobile-exam {
+    margin-top: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px dashed rgba(0, 0, 0, 0.15);
+}
+
+.cf-mobile-actions {
+    margin-top: 0.6rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.cf-mobile-action {
+    font-size: 0.78rem;
+    padding: 0.2rem 0.5rem;
+}
+
+/* Day agenda */
+#course-calendar.cf-mobile-hidden {
+    display: none;
+}
+
+#cf-mobile-agenda {
+    padding-bottom: 1rem;
+}
+
+.cf-mobile-day-chips {
+    display: flex;
+    gap: 0.3rem;
+    margin: 0.5rem 0 0.75rem 0;
+}
+
+.cf-mobile-day-chip {
+    flex: 1;
+    font-weight: 600;
+}
+
+.cf-mobile-day-chip-empty {
+    opacity: 0.55;
+}
+
+.cf-mobile-day-chip-today {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.cf-mobile-day-title {
+    font-size: 1.05rem;
+    margin: 0.75rem 0 0.5rem 0;
+}
+
+.cf-mobile-empty {
+    padding: 1rem;
+    text-align: center;
+    opacity: 0.8;
+}
+
+.cf-mobile-lesson {
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    border-right: 6px solid #999;
+    border-radius: 0.4rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+    background-color: rgba(255, 255, 255, 0.6);
+}
+
+.cf-mobile-lesson-current {
+    box-shadow: 0 0 0 2px #28a745;
+}
+
+.cf-mobile-lesson-done {
+    opacity: 0.55;
+}
+
+.cf-mobile-lesson-time {
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+.cf-mobile-lesson-name {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.cf-mobile-lesson-details {
+    font-size: 0.85rem;
+    opacity: 0.9;
+}
+
+.cf-mobile-gap {
+    font-size: 0.78rem;
+    opacity: 0.7;
+    text-align: center;
+    margin: 0.25rem 0 0.5rem 0;
+}
+
+.cf-mobile-exam-row {
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.cf-mobile-exam-date {
+    font-weight: 600;
+    display: inline-block;
+    min-width: 3.2rem;
+}
+
+.cf-mobile-course-list {
+    padding-right: 1.2rem;
+    margin-bottom: 0.5rem;
+}
+
+.cf-mobile-free-table th {
+    width: 4.5rem;
+    white-space: nowrap;
+}
+
+.cf-mobile-free-slot {
+    margin-bottom: 0.2rem;
+}
+
+/* Toast */
+.cf-mobile-toast {
+    position: fixed;
+    bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translate(-50%, 1rem);
+    background-color: rgba(33, 37, 41, 0.95);
+    color: white;
+    padding: 0.6rem 1rem;
+    border-radius: 2rem;
+    font-size: 0.9rem;
+    z-index: 2000;
+    opacity: 0;
+    transition: opacity 0.25s, transform 0.25s;
+    white-space: nowrap;
+    max-width: 95vw;
+}
+
+.cf-mobile-toast-visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+/* Native app: respect the notch / home indicator. */
+body.cf-native .container-fluid {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+body.cf-native .container-fluid {
+    padding-left: max(15px, env(safe-area-inset-left, 0px));
+    padding-right: max(15px, env(safe-area-inset-right, 0px));
+}
+
+/* Bigger touch targets for the course list on phones. */
+@media (max-width: 767.98px) {
+    body.cf-mobile-mode .list-group-item {
+        font-size: 0.9rem;
+    }
+
+    body.cf-mobile-mode .cf-mobile-card {
+        font-size: 0.9rem;
+    }
+}

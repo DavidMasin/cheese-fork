@@ -179,4 +179,45 @@ img[src="assets/icon-students.png"] {
     filter: brightness(2);
 }
 
+/* Mobile layer */
+.cf-mobile-card {
+    border-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(255, 193, 7, 0.07);
+}
+
+.cf-mobile-progress {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.cf-mobile-exam {
+    border-top-color: rgba(255, 255, 255, 0.2);
+}
+
+.cf-mobile-lesson {
+    border-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.cf-mobile-exam-row {
+    border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+.cf-mobile-action.btn-outline-secondary,
+.cf-mobile-day-chip.btn-outline-secondary {
+    color: rgb(222,226,230);
+    border-color: rgba(222,226,230,0.5);
+}
+
+.cf-mobile-status .badge-light,
+.cf-mobile-exam-row .badge-light,
+.cf-mobile-free-slot.badge-light {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: rgb(222,226,230);
+}
+
+.cf-mobile-toast {
+    background-color: rgba(248, 249, 250, 0.95);
+    color: #212529;
+}
+
 }

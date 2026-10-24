@@ -4,7 +4,7 @@
 /* global CourseManager, CourseSelect, CourseButtonList, CourseExamInfo, CourseCalendar, CourseFeedback */
 /* global courses_from_rishum, availableSemesters, currentSemester, scheduleSharingUserId */
 
-(function () {
+function cheeseForkMain() {
     var courseManager = new CourseManager(courses_from_rishum);
     var colorHash = new ColorHash();
     var firestoreDb = null;
@@ -192,6 +192,8 @@
             }
         });
 
+        mobileApiInit();
+
         $('#top-navbar-supported-content').removeClass('top-navbar-content-uninitialized');
 
         $('#footer-semester-name').text(semesterFriendlyName(currentSemester));
@@ -230,6 +232,94 @@
                 });
             }
         }
+    }
+
+    // A small API for the mobile layer (mobile/cheesefork-mobile.js), which
+    // powers the PWA and the native Android/iOS app.
+    function mobileApiInit() {
+        window.cheeseFork = {
+            courseManager: courseManager,
+            currentSemester: currentSemester,
+            availableSemesters: availableSemesters,
+            semesterFriendlyName: semesterFriendlyName,
+            semesterFriendlyNameForFileName: semesterFriendlyNameForFileName,
+            courseColorGenerator: courseColorGenerator,
+            copyToClipboard: copyToClipboard,
+            getSiteBaseUrl: getSiteBaseUrl,
+            isViewingSharedSchedule: function () {
+                return viewingSharedSchedule;
+            },
+            isLoggedIn: function () {
+                try {
+                    return typeof firebase !== 'undefined' && firebase.auth().currentUser !== null;
+                } catch (e) {
+                    return false;
+                }
+            },
+            getShareUrl: function () {
+                if (!this.isLoggedIn()) {
+                    return null;
+                }
+                return getSiteBaseUrl() +
+                    '?semester=' + encodeURIComponent(currentSemester) +
+                    '&uid=' + encodeURIComponent(firebase.auth().currentUser.uid);
+            },
+            getSelectedCourses: function () {
+                return courseButtonList.getCourseNumbers(true);
+            },
+            // Lessons and custom events which are part of the schedule.
+            getSelectedEvents: function () {
+                return courseCalendar.element.fullCalendar('clientEvents', function (event) {
+                    return event.start.week() === 1 && event.selected && !event.temporary;
+                });
+            },
+            getCurrentSession: function () {
+                return $.extend(true, {}, currentSavedSession);
+            },
+            // Replaces the current schedule with the given saved session
+            // (same format as the Firestore/localStorage data).
+            importSession: function (session) {
+                var newSession = savedSessionFromFirestoreData(session);
+                restoreSavedSession(currentSavedSession, newSession);
+                currentSavedSession = $.extend(true, {}, newSession);
+                onSavedSessionChange();
+            },
+            // Loads the schedule of another user by the id from a share link.
+            loadSharedSession: function (userId, onDone) {
+                if (!firestoreDb) {
+                    onDone(new Error('Firebase is not available'));
+                    return;
+                }
+                firestoreUserDoc(userId).get().then(function (result) {
+                    var data = result.exists ? result.data() : {};
+                    var displayName = data.displayName ? firestoreDisplayNameDecode(data.displayName) : null;
+                    onDone(null, savedSessionFromFirestoreData(data), displayName);
+                }, function (error) {
+                    onDone(error);
+                });
+            }
+        };
+
+        $(document).trigger('cheesefork:ready');
+    }
+
+    function getSiteBaseUrl() {
+        if (window.cheeseForkPlatform && window.cheeseForkPlatform.isNative) {
+            // Inside the native app the page is served from localhost.
+            return 'https://cheesefork.cf/';
+        }
+        return location.protocol + '//' + location.host + location.pathname;
+    }
+
+    var notifyScheduleChangedTimer = null;
+    function notifyScheduleChanged() {
+        if (notifyScheduleChangedTimer !== null) {
+            return;
+        }
+        notifyScheduleChangedTimer = setTimeout(function () {
+            notifyScheduleChangedTimer = null;
+            $(document).trigger('cheesefork:schedule-changed');
+        }, 0);
     }
 
     function courseColorGenerator(course) {
@@ -706,7 +796,7 @@
 
                 gtag('event', 'navbar-share');
 
-                var url = location.protocol + '//' + location.host + location.pathname +
+                var url = getSiteBaseUrl() +
                     '?semester=' + encodeURIComponent(currentSemester) +
                     '&uid=' + encodeURIComponent(firebase.auth().currentUser.uid);
                 var urlElement = $('<a target="_blank" rel="noopener">לחצו כאן לפתיחה</a>').prop('href', url);
@@ -829,6 +919,18 @@
                 };
 
                 if (viewingSharedSchedule || typeof firebase === 'undefined' || firebase.auth().currentUser === null) {
+                    var platform = window.cheeseForkPlatform;
+                    if (platform && platform.saveTextFile) {
+                        // The native app can't download blobs, share the file instead.
+                        var calendarText = icsCal.build();
+                        if (!calendarText) {
+                            errorEmptySchedule();
+                            return;
+                        }
+                        platform.saveTextFile(semesterFriendlyNameForFileName(currentSemester) + '.ics', calendarText, 'text/calendar');
+                        return;
+                    }
+
                     if (!icsCal.download(semesterFriendlyNameForFileName(currentSemester))) {
                         errorEmptySchedule();
                     }
@@ -924,6 +1026,19 @@
 
         firestoreDb = firebase.firestore();
 
+        // Keep a local copy of the data for the installed app, so that the
+        // schedule is available offline as well.
+        if (window.cheeseForkPlatform && window.cheeseForkPlatform.wantsOfflineData &&
+            typeof firestoreDb.enablePersistence === 'function') {
+            try {
+                firestoreDb.enablePersistence({synchronizeTabs: true}).catch(function () {
+                    // Not supported or already enabled in another tab, continue without it.
+                });
+            } catch (e) {
+                // Continue without the cache.
+            }
+        }
+
         firebaseStorage = firebase.app().storage('gs://files.cheesefork.cf');
     }
 
@@ -965,6 +1080,12 @@
             // Disable accountchooser.com which is enabled by default.
             credentialHelper: firebaseui.auth.CredentialHelper.NONE
         };
+
+        if (window.cheeseForkPlatform && window.cheeseForkPlatform.isNative) {
+            // Google blocks its sign-in page inside embedded web views, so the
+            // native app only offers email sign-in (see MOBILE.md).
+            uiConfig.signInOptions = [firebase.auth.EmailAuthProvider.PROVIDER_ID];
+        }
 
         // Initialize the FirebaseUI Widget using Firebase.
         var firebaseUI = new firebaseui.auth.AuthUI(firebase.auth());
@@ -1595,6 +1716,8 @@
         if (restoreScrollPosition) {
             $(window).scrollTop(scrollTop); // restore scroll position
         }
+
+        notifyScheduleChanged();
     }
 
     function resetSchedule() {
@@ -1610,11 +1733,15 @@
 
         $('#top-navbar-undo').addClass('d-none');
         $('#top-navbar-redo').addClass('d-none');
+
+        notifyScheduleChanged();
     }
 
     function onSavedSessionChange() {
         $('#top-navbar-undo').removeClass('d-none');
         $('#top-navbar-redo').addClass('d-none');
+
+        notifyScheduleChanged();
     }
 
     function makeUndo() {
@@ -2412,7 +2539,14 @@
         $outer.remove();
         return 100 - widthWithScroll;
     }
-})();
+}
+
+if (typeof courses_from_rishum !== 'undefined') {
+    cheeseForkMain();
+} else {
+    // The native app loads the course data asynchronously, see mobile/platform.js.
+    document.addEventListener('cheesefork:courses-ready', cheeseForkMain);
+}
 
 // eslint-disable-next-line no-unused-vars
 function showBootstrapDialogWithModelessButton(dialogName, options) {

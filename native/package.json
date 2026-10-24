@@ -1,0 +1,33 @@
+{
+  "name": "cheesefork-native",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Native Android/iOS wrapper of CheeseFork (Capacitor)",
+  "license": "GPL-3.0",
+  "scripts": {
+    "build:www": "node scripts/build-www.js",
+    "serve": "node scripts/serve.js",
+    "sync": "npm run build:www && npx cap sync",
+    "sync:android": "npm run build:www && npx cap sync android",
+    "sync:ios": "npm run build:www && npx cap sync ios",
+    "assets": "npx @capacitor/assets generate --android --ios --assetPath resources --iconBackgroundColor \"#FFF8E1\" --iconBackgroundColorDark \"#FFF8E1\" --splashBackgroundColor \"#f8f9fa\" --splashBackgroundColorDark \"#212529\"",
+    "open:android": "npx cap open android",
+    "open:ios": "npx cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "^7.4.0",
+    "@capacitor/filesystem": "^7.1.0",
+    "@capacitor/haptics": "^7.0.0",
+    "@capacitor/ios": "^7.4.0",
+    "@capacitor/local-notifications": "^7.0.0",
+    "@capacitor/share": "^7.0.0",
+    "@capacitor/splash-screen": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.4.0"
+  }
+}

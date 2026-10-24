@@ -1,0 +1,47 @@
+{
+    "name": "CheeseFork - מערכת שעות לטכניון",
+    "short_name": "CheeseFork",
+    "description": "כלי בניית מערכת שעות עבור סטודנטים בטכניון",
+    "id": "./",
+    "start_url": "./?source=pwa",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "any",
+    "lang": "he",
+    "dir": "rtl",
+    "theme_color": "#ffffff",
+    "background_color": "#f8f9fa",
+    "categories": ["education", "productivity"],
+    "icons": [
+        {
+            "src": "icons/android-chrome-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/android-chrome-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/maskable-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "השיעורים של היום",
+            "short_name": "היום",
+            "url": "./?view=today",
+            "icons": [
+                {
+                    "src": "icons/android-chrome-192x192.png",
+                    "sizes": "192x192",
+                    "type": "image/png"
+                }
+            ]
+        }
+    ]
+}
