@@ -197,6 +197,7 @@ function cheeseForkMain() {
         courseGrades = new CourseGrades({
             courseManager: courseManager,
             currentSemester: currentSemester,
+            availableSemesters: availableSemesters,
             semesterFriendlyName: semesterFriendlyName,
             copyToClipboard: copyToClipboard,
             getSelectedCourses: function () {

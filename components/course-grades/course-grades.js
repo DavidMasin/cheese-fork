@@ -15,6 +15,7 @@ var CourseGrades = (function () {
     function CourseGrades(options) {
         this.courseManager = options.courseManager;
         this.currentSemester = options.currentSemester;
+        this.availableSemesters = options.availableSemesters || {};
         this.semesterFriendlyName = options.semesterFriendlyName;
         this.getSelectedCourses = options.getSelectedCourses;
         this.copyToClipboard = options.copyToClipboard;
@@ -235,21 +236,24 @@ var CourseGrades = (function () {
         stats.append(makeStat('ממוצע מצטבר', 'כל הסמסטרים', totalStats));
         container.append(stats);
 
-        // Semester selector.
-        var semesters = Object.keys(data.semesters);
-        if (semesters.indexOf(that.currentSemester) === -1) {
-            semesters.push(that.currentSemester);
-        }
-        if (semesters.indexOf(that.viewSemester) === -1) {
-            semesters.push(that.viewSemester);
-        }
+        // Semester selector: every semester CheeseFork knows, plus any
+        // semester which already has grades.
+        var semesters = Object.keys(that.availableSemesters);
+        Object.keys(data.semesters).concat([that.currentSemester, that.viewSemester]).forEach(function (semester) {
+            if (semesters.indexOf(semester) === -1) {
+                semesters.push(semester);
+            }
+        });
         semesters.sort().reverse();
 
         var select = $('<select class="form-control form-control-sm course-grades-semester"></select>');
         semesters.forEach(function (semester) {
+            var hasGrades = !!data.semesters[semester];
             select.append($('<option>', {
                 value: semester,
-                text: that.semesterFriendlyName(semester) + (semester === that.currentSemester ? ' (נוכחי)' : ''),
+                text: that.semesterFriendlyName(semester) +
+                    (semester === that.currentSemester ? ' (מוצג כעת)' : '') +
+                    (hasGrades ? ' ✓' : ''),
                 selected: semester === that.viewSemester
             }));
         });
@@ -260,8 +264,15 @@ var CourseGrades = (function () {
             that.viewSemester = this.value;
             that.render(container);
         });
-        container.append($('<div class="form-inline course-grades-semester-row"></div>')
-            .append('<label class="ml-2">סמסטר:</label>', select));
+        var semesterRow = $('<div class="form-inline course-grades-semester-row"></div>')
+            .append('<label class="ml-2">סמסטר:</label>', select);
+        if (that.viewSemester !== that.currentSemester && that.availableSemesters[that.viewSemester]) {
+            // The courses of another semester are only known once the app shows it.
+            semesterRow.append($('<a class="btn btn-sm btn-link course-grades-switch"></a>')
+                .text('טעינת המקצועות מהמערכת של סמסטר זה')
+                .prop('href', '?semester=' + encodeURIComponent(that.viewSemester)));
+        }
+        container.append(semesterRow);
 
         // Table.
         var rows = that.rowsForSemester(data, that.viewSemester);
@@ -314,17 +325,26 @@ var CourseGrades = (function () {
 
         numberInput.on('change blur', function () {
             var course = that.courseManager.stringToCourseNumber(this.value.trim());
-            if (course) {
-                course = that.courseManager.toSemesterFormatCourseNumber(course);
-                if (that.courseManager.doesExist(course)) {
-                    var general = that.courseManager.getGeneralInfo(course);
-                    if (!nameInput.val()) {
-                        nameInput.val(general['שם מקצוע']);
-                    }
-                    if (!pointsInput.val()) {
-                        pointsInput.val(general['נקודות']);
-                    }
+            if (!course) {
+                return;
+            }
+            course = that.courseManager.toSemesterFormatCourseNumber(course);
+            if (that.courseManager.doesExist(course)) {
+                var general = that.courseManager.getGeneralInfo(course);
+                if (!nameInput.val()) {
+                    nameInput.val(general['שם מקצוע']);
                 }
+                if (!pointsInput.val()) {
+                    pointsInput.val(general['נקודות']);
+                }
+            } else if (!nameInput.val()) {
+                // Course of another semester: look the name up online.
+                var newNumber = that.courseManager.toNewCourseNumber(course);
+                $.get('https://michael-maltsev.github.io/technion-course-names/num/' + newNumber, function (name) {
+                    if (!nameInput.val() && typeof name === 'string') {
+                        nameInput.val(name.trim());
+                    }
+                });
             }
         });
 
@@ -349,7 +369,10 @@ var CourseGrades = (function () {
             that.render(container);
         });
 
-        container.append($('<div class="course-grades-add-title">הוספת קורס (למשל מסמסטרים קודמים)</div>'), form);
+        container.append(
+            $('<div class="course-grades-add-title">הוספת קורס ידנית</div>'),
+            $('<div class="small text-muted mb-1">לסמסטר קודם: בחרו אותו למעלה ולחצו "טעינת המקצועות" כדי לקבל את המקצועות שלכם עם הנקודות, או הוסיפו כאן לפי מספר מקצוע (השם מושלם אוטומטית).</div>'),
+            form);
 
         function makeStat(title, subtitle, stat) {
             var box = $('<div class="col-4"><div class="course-grades-stat"></div></div>');
