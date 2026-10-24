@@ -212,6 +212,11 @@
                     window.cheeseForkTasks.showTasksDialog();
                 }
             }));
+            actions.append(makeActionButton('cf-mobile-ai-button', 'fa-magic', 'עוזר AI', function () {
+                if (window.cheeseForkAi) {
+                    window.cheeseForkAi.openAssistant();
+                }
+            }));
         }
 
         actions.append(makeActionButton('cf-mobile-install-button', 'fa-mobile-alt', 'התקנה', installApp).addClass('d-none'));

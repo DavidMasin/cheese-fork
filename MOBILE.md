@@ -67,6 +67,15 @@ Shown automatically on phones, tablets, the installed PWA and the native app
   links to its day in the Moodle calendar. Everything is stored on the
   device only. On the website a browser can't fetch Moodle directly, so
   paste the calendar file's content instead.
+- **AI helper** – bring your own key (Gemini has a free tier; OpenAI and
+  Claude work too) under עוד → עוזר AI. The key stays on the device and
+  requests go straight from the app to the provider. Three uses: the
+  assistant (✨ button) answers in Hebrew about your schedule, free slots,
+  exams, tasks and, if you allow it, grades, and plans study weeks; "סיכום
+  AI" in a course's feedback section (and "סיכום חוות דעת" in the course
+  sheet) summarises all the course reviews into lecturers, workload, exam
+  and tips; and the ✨ button in the tasks tab extracts deadlines from a
+  pasted announcement or message into tasks you confirm before adding.
 - **Home screen widget** (Android) – "השיעורים של היום": today's lessons
   with time, course, type, room and lecturer, the current one highlighted;
   after the last lesson it switches to the next day with lessons. Long-press

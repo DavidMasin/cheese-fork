@@ -128,6 +128,16 @@
         saveData(data);
     }
 
+    // Adds a manual task ({title, due, course, courseName, notes}).
+    function addTask(values) {
+        upsertTask($.extend({
+            id: 'manual:' + Date.now() + ':' + Math.floor(Math.random() * 1000),
+            source: 'manual',
+            done: false,
+            created: Date.now()
+        }, values));
+    }
+
     // ---------------------------------------------------------------------
     // Moodle calendar (iCalendar) import
     // ---------------------------------------------------------------------
@@ -436,6 +446,11 @@
             });
         toolbar.append(syncButton);
         toolbar.append($('<button type="button" class="btn btn-sm btn-outline-secondary" title="הגדרות Moodle"><i class="fas fa-cog"></i></button>').click(showMoodleDialog));
+        if (window.cheeseForkAi) {
+            toolbar.append($('<button type="button" class="btn btn-sm btn-outline-secondary" title="חילוץ מטלות מטקסט בעזרת AI"><i class="fas fa-magic"></i></button>').click(function () {
+                window.cheeseForkAi.extractTasksDialog();
+            }));
+        }
         container.append(toolbar);
 
         // Status line.
@@ -903,6 +918,7 @@
         buildNotifications: buildNotifications,
         importIcsText: importIcsText,
         parseIcs: parseIcs,
+        addTask: addTask,
         isMoodleConnected: function () {
             return !!loadData().moodle.icsUrl;
         }

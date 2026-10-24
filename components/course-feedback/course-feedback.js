@@ -635,6 +635,9 @@ var CourseFeedback = (function () {
 
         element.html(content);
 
+        // Lets optional add-ons (e.g. the mobile AI summary) react to the rendered feedback.
+        $(document).trigger('cheesefork:feedback-rendered', [course, posts, element]);
+
         // Only on the first render, so that the dialog doesn't reopen after submitting.
         if (courseFeedback.openNewFeedbackDialog) {
             courseFeedback.openNewFeedbackDialog = false;

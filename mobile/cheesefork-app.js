@@ -50,6 +50,7 @@
         buildHeader();
         buildTabs();
         buildPanels();
+        buildAssistantButton();
         initSwipe();
 
         mobile.onLessonTap = showCourseSheet;
@@ -119,6 +120,16 @@
             nav.append(button);
         });
         $('body').append(nav);
+    }
+
+    function buildAssistantButton() {
+        if (!window.cheeseForkAi || api.isViewingSharedSchedule()) {
+            return;
+        }
+        $('body').append($('<button type="button" class="cf-ai-fab" title="עוזר AI"><i class="fas fa-magic"></i></button>').click(function () {
+            mobile.hapticImpact();
+            window.cheeseForkAi.openAssistant();
+        }));
     }
 
     function buildPanels() {
@@ -290,6 +301,13 @@
                 value: window.cheeseForkTasks.isMoodleConnected() ? 'מחובר' : ''
             }));
         }
+        if (!shared && window.cheeseForkAi) {
+            content.append(makeSheetItem('fa-magic', 'עוזר AI - הגדרות', function () {
+                window.cheeseForkAi.showSettingsDialog();
+            }, {
+                value: window.cheeseForkAi.isConfigured() ? window.cheeseForkAi.PROVIDERS[JSON.parse(localStorage.getItem('cheeseForkAi') || '{}').provider || 'gemini'].name : 'לא מוגדר'
+            }));
+        }
 
         if (!shared) {
             content.append(makeSheetItem('fa-file-import', 'ייבוא מערכת מקישור', function () {
@@ -451,6 +469,11 @@
             actions.append(makeActionButton('fa-graduation-cap', 'ציון', function () {
                 selectTab('grades');
             }));
+            if (window.cheeseForkAi) {
+                actions.append(makeActionButton('fa-magic', 'סיכום חוות דעת', function () {
+                    window.cheeseForkAi.summarizeCourseFeedback(item.course, null);
+                }));
+            }
             content.append(actions);
 
             if (general['סילבוס']) {
