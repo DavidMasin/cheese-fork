@@ -138,13 +138,26 @@ screens from `native/resources`.
 
 The app uses the real CheeseFork backend (same Firebase project, same
 Firestore, same course data), so any account works on the website and in
-the app alike. Two limitations apply to **Google** sign-in only:
+the app alike.
 
-- Google blocks its sign-in page inside embedded web views ("disallowed
-  user agent"), so the native app only offers **email/password** sign-in.
-- Google sign-in on a fork's own domain (e.g. `<user>.github.io`) fails with
-  `auth/unauthorized-domain`, because only the maintainer can add domains
-  to the Firebase project. Email/password sign-in is not affected.
+**Only cheesefork.cf may talk to that backend.** The CheeseFork Firebase API
+key is restricted by HTTP referrer: requests from any other origin
+(`<user>.github.io`, `localhost`, …) are rejected with
+`auth/requests-from-referer-…-are-blocked`. Consequences:
+
+- On a fork served from GitHub Pages, signing in, cloud sync, share-link
+  import and course feedback don't work. The schedule is still saved in the
+  browser, and all mobile features that don't need the account work. The
+  login dialog says so.
+- The native app sets Capacitor's `server.hostname` to `cheesefork.cf`, so
+  its pages run on the `https://cheesefork.cf` origin (served from the
+  bundled files) and the backend accepts them. Don't change that setting.
+  (On iOS the web view can't use the https scheme, so the iOS build would
+  need the maintainer to allow another referrer.)
+
+Google sign-in has one more limitation: Google blocks its sign-in page
+inside embedded web views ("disallowed user agent"), so the native app only
+offers **email/password** sign-in.
 
 ### Use your Google account in the app: add a password to it
 

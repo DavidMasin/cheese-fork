@@ -80,6 +80,7 @@
 
         loadDaysOff();
         installPromptInit();
+        loginNoticeInit();
         nativeInit();
 
         var view = getParameterByName('view');
@@ -1432,6 +1433,32 @@
             daysOff: state.daysOff || [],
             items: items
         }).catch(function () {});
+    }
+
+    // ---------------------------------------------------------------------
+    // Sign-in notice on other domains
+    // ---------------------------------------------------------------------
+
+    // The CheeseFork Firebase API key only accepts requests from
+    // cheesefork.cf, so on any other host (a fork on GitHub Pages, a dev
+    // server) signing in and syncing can't work. Explain it in the login
+    // dialog instead of showing a cryptic Firebase error.
+    function loginNoticeInit() {
+        if (platform.isNative || location.hostname === 'cheesefork.cf') {
+            return;
+        }
+
+        $('#top-navbar-login').on('click', function () {
+            setTimeout(function () {
+                var container = $('#firebaseui-auth-container');
+                if (container.find('.cf-mobile-login-notice').length > 0) {
+                    return;
+                }
+                container.prepend($('<div class="alert alert-warning cf-mobile-small cf-mobile-login-notice"></div>').text(
+                    'בכתובת זו (' + location.hostname + ') לא ניתן להתחבר לחשבון: שרת CheeseFork מקבל בקשות רק מ-cheesefork.cf. ' +
+                    'המערכת נשמרת במכשיר זה גם ללא חיבור. להתחברות ולסנכרון השתמשו באפליקציה או באתר cheesefork.cf.'));
+            }, 300);
+        });
     }
 
     // ---------------------------------------------------------------------

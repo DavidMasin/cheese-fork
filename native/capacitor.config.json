@@ -3,7 +3,8 @@
   "appName": "CheeseFork",
   "webDir": "www",
   "server": {
-    "androidScheme": "https"
+    "androidScheme": "https",
+    "hostname": "cheesefork.cf"
   },
   "android": {
     "allowMixedContent": false,
