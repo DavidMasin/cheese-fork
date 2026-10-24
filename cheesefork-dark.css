@@ -224,4 +224,35 @@ img[src="assets/icon-students.png"] {
     border-color: rgba(255, 255, 255, 0.15);
 }
 
+/* App shell */
+.cf-app-nav,
+.cf-app-sheet {
+    background-color: #2b3035;
+    border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+.cf-app-nav-item {
+    color: #adb5bd;
+}
+
+.cf-app-nav-item-active {
+    color: #6ea8fe;
+}
+
+.cf-app-sheet-handle {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+.cf-app-sheet-item:active {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.cf-app-sheet-divider {
+    background-color: rgba(255, 255, 255, 0.12);
+}
+
+.cf-app-course-syllabus {
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
 }

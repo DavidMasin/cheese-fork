@@ -283,6 +283,15 @@ function cheeseForkMain() {
             openGrades: function () {
                 courseGrades.openDialog();
             },
+            renderGrades: function (container) {
+                courseGrades.renderInline(container);
+            },
+            getCourseInfo: function (course) {
+                return courseManager.doesExist(course) ? courseManager.getGeneralInfo(course) : null;
+            },
+            openCourseInfo: function (course) {
+                $('#course-button-list li[data-course-number="' + course + '"] .badge').first().click();
+            },
             // Lessons and custom events which are part of the schedule.
             getSelectedEvents: function () {
                 return courseCalendar.element.fullCalendar('clientEvents', function (event) {
@@ -359,6 +368,10 @@ function cheeseForkMain() {
     }
 
     function showExtraContentOnLoad() {
+        if (window.cheeseForkPlatform && window.cheeseForkPlatform.appUi) {
+            // The app has its own onboarding; skip the website's tour and promos.
+            return showCourseFeedbackPopup();
+        }
         return showIntro() || showCourseFeedbackPopup() || showThursdayGraphPopup() || showTechnionScansPopup();
     }
 

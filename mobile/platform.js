@@ -21,9 +21,14 @@ window.cheeseForkPlatform = (function () {
         // Ignore.
     }
 
+    // The app shell (bottom navigation etc.) is used by the native app; add
+    // ?appui=1 to try it in a browser.
+    var appUi = isNative || /[?&]appui=1(&|$)/.test(window.location.search);
+
     var platform = {
         isNative: isNative,
         isStandalone: isStandalone,
+        appUi: appUi,
         os: isNative ? capacitor.getPlatform() : 'web',
         // Keep local copies of remote data (Firestore, course data) for offline use.
         wantsOfflineData: isNative || isStandalone,

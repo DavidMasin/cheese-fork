@@ -34,7 +34,8 @@
         nowTimer: null,
         remindersSyncTimer: null,
         lastCourseCount: null,
-        backButtonPressedAt: 0
+        backButtonPressedAt: 0,
+        backHandlers: []
     };
 
     // ---------------------------------------------------------------------
@@ -89,6 +90,34 @@
         } else {
             setView(storageGet('cfMobileView') || 'week');
         }
+
+        // Internal API for the app shell (mobile/cheesefork-app.js).
+        window.cheeseForkMobile = {
+            platform: platform,
+            setView: setView,
+            getView: function () {
+                return state.view;
+            },
+            shiftAgendaDay: shiftAgendaDay,
+            getScheduleItems: getScheduleItems,
+            getExams: getExams,
+            examDaysText: examDaysText,
+            formatMinutes: formatMinutes,
+            makeLocationLink: makeLocationLink,
+            shareSchedule: shareSchedule,
+            showImportDialog: showImportDialog,
+            showFreeTimeDialog: showFreeTimeDialog,
+            showRemindersDialog: showRemindersDialog,
+            showToast: showToast,
+            hapticImpact: hapticImpact,
+            registerBackHandler: function (handler) {
+                state.backHandlers.push(handler);
+            },
+            onLessonTap: null,
+            onViewChanged: null,
+            DAY_NAMES: DAY_NAMES
+        };
+        $(document).trigger('cheesefork:mobile-ready');
 
         var importUserId = getParameterByName('cfimport');
         if (importUserId) {
@@ -586,6 +615,23 @@
                 // Not initialized yet.
             }
         }
+
+        if (window.cheeseForkMobile && typeof window.cheeseForkMobile.onViewChanged === 'function') {
+            window.cheeseForkMobile.onViewChanged(view);
+        }
+    }
+
+    function shiftAgendaDay(delta) {
+        if (state.agendaDay === null) {
+            return;
+        }
+        var day = state.agendaDay + delta;
+        if (day < 0 || day > 5) {
+            return;
+        }
+        state.agendaDay = day;
+        renderAgenda();
+        hapticImpact();
     }
 
     function renderAgenda() {
@@ -647,6 +693,14 @@
             }
 
             var card = $('<div class="cf-mobile-lesson"></div>').css('border-right-color', item.color);
+            if (window.cheeseForkMobile && typeof window.cheeseForkMobile.onLessonTap === 'function') {
+                card.addClass('cf-mobile-lesson-tappable').click(function (event) {
+                    if ($(event.target).closest('a').length > 0) {
+                        return;
+                    }
+                    window.cheeseForkMobile.onLessonTap(item);
+                });
+            }
             if (isToday && item.startMin <= nowMin && nowMin < item.endMin) {
                 card.addClass('cf-mobile-lesson-current');
             } else if (isToday && item.endMin <= nowMin) {
@@ -1629,6 +1683,12 @@
 
     function onBackButton() {
         var app = platform.plugin('App');
+
+        for (var i = state.backHandlers.length - 1; i >= 0; i--) {
+            if (state.backHandlers[i]()) {
+                return;
+            }
+        }
 
         var openModal = $('.modal.show').last();
         if (openModal.length > 0) {

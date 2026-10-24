@@ -193,6 +193,25 @@ var CourseGrades = (function () {
         });
     };
 
+    // Renders the grade book into a page element (the app's grades tab)
+    // instead of a dialog, with the backup/restore actions inline.
+    CourseGrades.prototype.renderInline = function (container) {
+        var that = this;
+        that.viewSemester = that.viewSemester || that.currentSemester;
+
+        var content = $('<div class="course-grades"></div>');
+        var actions = $('<div class="course-grades-inline-actions"></div>');
+        actions.append($('<button type="button" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download"></i> גיבוי</button>').click(function () {
+            that.backup();
+        }));
+        actions.append($('<button type="button" class="btn btn-sm btn-outline-secondary"><i class="fas fa-file-import"></i> שחזור</button>').click(function () {
+            that.restore(content);
+        }));
+
+        container.empty().append($('<h5 class="course-grades-inline-title">הציונים שלי</h5>'), content, actions);
+        that.render(content);
+    };
+
     CourseGrades.prototype.render = function (container) {
         var that = this;
         var data = loadData();
