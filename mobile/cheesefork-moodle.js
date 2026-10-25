@@ -21,6 +21,8 @@
     var DISCOVERY_SITE = 'https://moodle.technion.ac.il';
     var SYNC_INTERVAL_MS = 30 * 60 * 1000;
     var MAX_COURSES = 15;
+    // Bump when sync logic changes, so an updated app syncs right away.
+    var SYNC_VERSION = 3;
 
     var platform = window.cheeseForkPlatform || {isNative: false, plugin: function () { return null; }};
     var api = null;
@@ -91,13 +93,22 @@
         });
     }
 
-    function getPage(url) {
+    // {status, url, body}, for the sync log.
+    function getPageResult(url) {
         return session().getPage({url: url}).then(function (result) {
             if (result.expired) {
                 throw expiredError();
             }
-            return result.body || '';
+            return {status: result.status, url: result.url || url, body: result.body || ''};
         });
+    }
+
+    function describePage(page, found) {
+        var title = /<title[^>]*>([^<]*)<\/title>/i.exec(page.body);
+        var path = String(page.url).replace(/^https?:\/\/[^/]+/, '');
+        return 'HTTP ' + page.status + ' ' + path + ', ' + page.body.length + ' bytes, ' +
+            (page.body.match(/\/mod\/\w+\/view\.php\?id=/g) || []).length + ' mod links, ' +
+            found + ' items' + (title ? ', title="' + title[1].trim().slice(0, 60) + '"' : '');
     }
 
     // Moodle's public config tells the real address (moodle.technion.ac.il
@@ -328,6 +339,11 @@
         var resourceItems = [];
         var updatedCmids = {};
         var events = [];
+        var log = [];
+        var note = function (text) {
+            log.push(text);
+        };
+        note(moment(now).format('DD/MM HH:mm:ss') + ' sync v' + SYNC_VERSION + ', site ' + site);
 
         // "all" rather than "inprogress": before the semester starts its
         // courses are classified as future.
@@ -338,7 +354,14 @@
             sort: 'fullname'
         }).then(function (result) {
             var nowSeconds = Math.floor(now / 1000);
-            courses = ((result && result.courses) || []).filter(function (course) {
+            var enrolled = (result && result.courses) || [];
+            note('enrolled courses: ' + enrolled.length);
+            enrolled.forEach(function (course) {
+                note('  ' + course.id + ' "' + String(course.fullname).slice(0, 50) + '" start ' +
+                    (course.startdate ? moment(course.startdate * 1000).format('DD/MM/YY') : '-') + ' end ' +
+                    (course.enddate ? moment(course.enddate * 1000).format('DD/MM/YY') : '-'));
+            });
+            courses = enrolled.filter(function (course) {
                 return !course.enddate || course.enddate > nowSeconds - 30 * 86400;
             }).sort(function (a, b) {
                 return (b.startdate || 0) - (a.startdate || 0);
@@ -354,17 +377,22 @@
                 };
             });
 
+            note('courses kept: ' + courses.length);
+
             // One course at a time keeps the load on Moodle low.
             return courses.reduce(function (chain, course) {
                 return chain.then(function () {
-                    return getPage(site + '/course/resources.php?id=' + course.id).then(function (html) {
-                        var found = parseResources(html, course, site);
+                    return getPageResult(site + '/course/resources.php?id=' + course.id).then(function (page) {
+                        var found = parseResources(page.body, course, site);
+                        note('course ' + course.id + ' resources: ' + describePage(page, found.length));
                         if (found.length > 0) {
                             return found;
                         }
                         // Fall back to the course page itself.
-                        return getPage(course.viewurl).then(function (page) {
-                            return parseResources(page, course, site);
+                        return getPageResult(course.viewurl).then(function (coursePage) {
+                            var fromCourse = parseResources(coursePage.body, course, site);
+                            note('course ' + course.id + ' page: ' + describePage(coursePage, fromCourse.length));
+                            return fromCourse;
                         });
                     }).then(function (found) {
                         course.itemCount = found.length;
@@ -374,6 +402,7 @@
                             throw error;
                         }
                         course.error = String((error && error.message) || 'error').slice(0, 80);
+                        note('course ' + course.id + ' ERROR ' + course.error);
                     });
                 }).then(function () {
                     if (!data.lastSync) {
@@ -404,6 +433,7 @@
                 limittononsuspendedevents: true
             }).then(function (result) {
                 events = (result && result.events) || [];
+                note('deadlines: ' + events.length);
             }, function (error) {
                 if (error && error.expired) {
                     throw error;
@@ -490,6 +520,9 @@
             data.lastSync = now;
             data.lastError = null;
             data.expired = false;
+            data.syncVersion = SYNC_VERSION;
+            note('done: ' + courses.length + ' courses, ' + resourceItems.length + ' items');
+            data.syncLog = log;
             state.syncing = false;
             saveData(data);
             configureBackground(data);
@@ -502,6 +535,8 @@
         }).catch(function (error) {
             state.syncing = false;
             var latest = loadData();
+            note('FAILED: ' + (error && error.expired ? 'session expired' : (error && error.message)));
+            latest.syncLog = log;
             if (error && error.expired) {
                 latest.expired = true;
                 latest.lastError = 'ההתחברות ל-Moodle פגה. התחברו מחדש כדי להמשיך לקבל עדכונים.';
@@ -521,7 +556,8 @@
         if (!data.connected || data.expired) {
             return;
         }
-        if (data.lastSync && Date.now() - data.lastSync < SYNC_INTERVAL_MS) {
+        var fresh = data.lastSync && Date.now() - data.lastSync < SYNC_INTERVAL_MS;
+        if (fresh && data.syncVersion === SYNC_VERSION && data.courses.length > 0 && !data.lastError) {
             return;
         }
         sync(false);
@@ -826,6 +862,10 @@
                     }));
             });
             container.append(list);
+        } else if (data.lastSync && !state.syncing) {
+            container.append($('<div class="cf-moodle-connect mt-2"></div>').append(
+                $('<span class="cf-mobile-small"></span>').text('לא נמצאו קורסים ב-Moodle. '),
+                $('<button type="button" class="btn btn-sm btn-outline-primary">פרטים לאבחון</button>').click(showConnectDialog)));
         }
     }
 
@@ -1023,6 +1063,19 @@
                     '<label class="form-check-label small" for="cf-moodle-background">בדיקה ברקע כל חצי שעה והתראה על קבצים ותרגילי בית חדשים</label>'));
             }
             message.append('<div class="cf-mobile-small text-muted mt-2">ההתחברות פגה מדי פעם (כמו באתר). כשזה קורה תופיע התראה, וכניסה מחדש לוקחת לחיצה אחת.</div>');
+            if (data.syncLog && data.syncLog.length) {
+                var logText = data.syncLog.join('\n');
+                var details = $('<details class="cf-mobile-small mt-2"><summary>פרטי הסנכרון האחרון (לאבחון)</summary></details>');
+                details.append($('<pre class="cf-moodle-log" dir="ltr"></pre>').text(logText));
+                details.append($('<button type="button" class="btn btn-sm btn-outline-secondary mt-1">העתקה</button>').click(function () {
+                    api.copyToClipboard(logText, function () {
+                        toast('פרטי הסנכרון הועתקו');
+                    }, function () {
+                        toast('ההעתקה נכשלה');
+                    });
+                }));
+                message.append(details);
+            }
             buttons.push({
                 label: data.expired ? 'התחברות מחדש' : 'סנכרון',
                 cssClass: 'btn-primary',
