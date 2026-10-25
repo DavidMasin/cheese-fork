@@ -251,7 +251,17 @@
     };
 
     // The course's resources page (course/resources.php) lists every file,
-    // folder, link and page with its section.
+    // folder, link and page with its section; the course page itself is the
+    // fallback (sections are <li class="section"> with a section name).
+    function sectionOfLink(link) {
+        var section = link.closest('li.section, [data-for="section"], .course-section');
+        if (!section) {
+            return '';
+        }
+        var title = section.querySelector('.sectionname, [data-for="section_title"], h3');
+        return title ? title.textContent.replace(/\s+/g, ' ').trim() : '';
+    }
+
     function parseResources(html, course, site) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var items = [];
@@ -262,7 +272,8 @@
         var candidates = rows.length > 0 ? Array.prototype.slice.call(rows) : [doc.body];
 
         candidates.forEach(function (row) {
-            if (row.cells && row.cells.length > 1) {
+            var isRow = row.cells && row.cells.length > 1;
+            if (isRow) {
                 var sectionText = row.cells[0].textContent.trim();
                 if (sectionText) {
                     lastSection = sectionText;
@@ -270,7 +281,7 @@
             }
             Array.prototype.forEach.call(row.querySelectorAll('a[href*="/mod/"]'), function (link) {
                 var match = /\/mod\/(\w+)\/view\.php\?id=(\d+)/.exec(link.getAttribute('href') || '');
-                if (!match || seen[match[2]]) {
+                if (!match || seen[match[2]] || match[1] === 'label') {
                     return;
                 }
                 seen[match[2]] = true;
@@ -280,7 +291,7 @@
                 });
                 var name = clone.textContent.replace(/\s+/g, ' ').trim() || 'פריט';
                 var cmid = parseInt(match[2], 10);
-                var section = row.cells && row.cells.length > 1 ? lastSection : '';
+                var section = isRow ? lastSection : sectionOfLink(link);
                 items.push({
                     key: 'm' + cmid,
                     cmid: cmid,
@@ -318,19 +329,28 @@
         var updatedCmids = {};
         var events = [];
 
+        // "all" rather than "inprogress": before the semester starts its
+        // courses are classified as future.
         return ajax('core_course_get_enrolled_courses_by_timeline_classification', {
-            classification: 'inprogress',
+            classification: 'all',
             limit: 0,
             offset: 0,
             sort: 'fullname'
         }).then(function (result) {
-            courses = ((result && result.courses) || []).slice(0, MAX_COURSES).map(function (course) {
+            var nowSeconds = Math.floor(now / 1000);
+            courses = ((result && result.courses) || []).filter(function (course) {
+                return !course.enddate || course.enddate > nowSeconds - 30 * 86400;
+            }).sort(function (a, b) {
+                return (b.startdate || 0) - (a.startdate || 0);
+            }).slice(0, MAX_COURSES).map(function (course) {
                 return {
                     id: course.id,
                     fullname: course.fullname || course.shortname || '',
                     shortname: course.shortname || '',
                     course: courseNumberIn(course.fullname) || courseNumberIn(course.shortname) || courseNumberIn(course.idnumber),
-                    viewurl: course.viewurl || (site + '/course/view.php?id=' + course.id)
+                    viewurl: course.viewurl || (site + '/course/view.php?id=' + course.id),
+                    startdate: course.startdate || 0,
+                    enddate: course.enddate || 0
                 };
             });
 
@@ -338,11 +358,22 @@
             return courses.reduce(function (chain, course) {
                 return chain.then(function () {
                     return getPage(site + '/course/resources.php?id=' + course.id).then(function (html) {
-                        resourceItems = resourceItems.concat(parseResources(html, course, site));
+                        var found = parseResources(html, course, site);
+                        if (found.length > 0) {
+                            return found;
+                        }
+                        // Fall back to the course page itself.
+                        return getPage(course.viewurl).then(function (page) {
+                            return parseResources(page, course, site);
+                        });
+                    }).then(function (found) {
+                        course.itemCount = found.length;
+                        resourceItems = resourceItems.concat(found);
                     }, function (error) {
                         if (error && error.expired) {
                             throw error;
                         }
+                        course.error = String((error && error.message) || 'error').slice(0, 80);
                     });
                 }).then(function () {
                     if (!data.lastSync) {
@@ -463,7 +494,8 @@
             saveData(data);
             configureBackground(data);
             if (interactive) {
-                toast('Moodle סונכרן: ' + courses.length + ' קורסים, ' + countUnread() + ' פריטים חדשים');
+                toast('Moodle סונכרן: ' + courses.length + ' קורסים, ' + resourceItems.length + ' פריטים' +
+                    (countUnread() ? ', ' + countUnread() + ' חדשים' : ''));
             }
             $(document).trigger('cheesefork:moodle-synced');
             return data;
@@ -771,12 +803,37 @@
         if (unread.length === 0) {
             container.append($('<div class="cf-mobile-small text-muted"></div>').text(
                 (data.lastSync ? 'אין פריטים חדשים · נבדק ' + moment(data.lastSync).format('DD/MM HH:mm') : 'מסנכרן...')));
-            return;
+        } else {
+            unread.slice(0, 30).forEach(function (item) {
+                container.append(makeItemRow(item));
+            });
         }
 
-        unread.slice(0, 30).forEach(function (item) {
-            container.append(makeItemRow(item));
-        });
+        // Every course with its files.
+        if (data.courses.length > 0) {
+            var list = $('<div class="cf-moodle-courses"></div>');
+            list.append('<div class="cf-moodle-subtitle">קבצי הקורסים</div>');
+            data.courses.forEach(function (course) {
+                list.append($('<button type="button" class="cf-moodle-course"></button>')
+                    .append(
+                        $('<i class="fas fa-folder-open cf-moodle-icon"></i>'),
+                        $('<span class="cf-moodle-course-name"></span>').text(shortCourseName(course.fullname)),
+                        $('<span class="badge cf-mobile-badge"></span>')
+                            .addClass(course.error ? 'badge-danger' : 'badge-light')
+                            .text(course.error ? '!' : String(course.itemCount || 0)))
+                    .click(function () {
+                        showMoodleCourseMaterials(course.id);
+                    }));
+            });
+            container.append(list);
+        }
+    }
+
+    function shortCourseName(name) {
+        return String(name || '')
+            .replace(/\s*-\s*(חורף|אביב|קיץ)\s*-\s*/, ' · ')
+            .replace(/^\d{6,10}\s*[-–:]\s*/, '')
+            .slice(0, 45);
     }
 
     function showFeedDialog() {
@@ -792,6 +849,56 @@
                 cssClass: 'btn-primary',
                 action: function (dialog) {
                     dialog.close();
+                }
+            }]
+        });
+    }
+
+    // Materials of a Moodle course picked from the course list.
+    function showMoodleCourseMaterials(courseId) {
+        var data = loadData();
+        var moodleCourse = data.courses.filter(function (entry) {
+            return entry.id === courseId;
+        })[0];
+        if (!moodleCourse) {
+            return;
+        }
+        var container = $('<div></div>');
+        var items = data.items.filter(function (item) {
+            return item.courseId === courseId && item.cmid;
+        });
+        var deadlines = data.items.filter(function (item) {
+            return item.courseId === courseId && item.eventId;
+        });
+        if (moodleCourse.error) {
+            container.append($('<p class="text-danger cf-mobile-small"></p>').text('קריאת הקורס נכשלה: ' + moodleCourse.error));
+        }
+        if (deadlines.length > 0) {
+            container.append($('<h6 class="cf-moodle-subtitle">מועדי הגשה</h6>'));
+            deadlines.forEach(function (item) {
+                container.append(makeItemRow(item, {hideCourse: true}));
+            });
+        }
+        if (items.length > 0) {
+            container.append($('<h6 class="cf-moodle-subtitle"></h6>').text('כל החומרים (חדש למעלה)'));
+            items.slice(0, 120).forEach(function (item) {
+                container.append(makeItemRow(item, {hideCourse: true}));
+            });
+        } else if (!moodleCourse.error) {
+            container.append('<p class="text-muted">לא נמצאו קבצים בקורס זה.</p>');
+        }
+        container.append($('<div class="mt-2"></div>').append(
+            $('<button type="button" class="btn btn-sm btn-outline-secondary"><i class="fas fa-external-link-alt"></i> פתיחת הקורס ב-Moodle</button>').click(function () {
+                openExternal(moodleCourse.viewurl);
+            })));
+        BootstrapDialog.show({
+            title: shortCourseName(moodleCourse.fullname),
+            message: container,
+            buttons: [{
+                label: 'סגור',
+                cssClass: 'btn-primary',
+                action: function (d) {
+                    d.close();
                 }
             }]
         });
@@ -903,9 +1010,10 @@
                 $('<p></p>').text((data.expired ? 'ההתחברות ל-Moodle פגה. ' : 'מחובר ל-Moodle. ') +
                     data.courses.length + ' קורסים' + (data.lastSync ? ', סונכרן ' + moment(data.lastSync).format('DD/MM HH:mm') : '') + '.'),
                 $('<div class="cf-mobile-small text-muted"></div>').text(
-                    'קורסים שזוהו: ' + (data.courses.map(function (course) {
-                        return (course.course ? '✓ ' : '? ') + course.fullname.slice(0, 40);
-                    }).join(' | ') || 'אין')));
+                    'קורסים: ' + (data.courses.map(function (course) {
+                        return shortCourseName(course.fullname) +
+                            ' (' + (course.error ? 'שגיאה: ' + course.error : (course.itemCount || 0) + ' פריטים') + ')';
+                    }).join(' | ') || 'לא נמצאו קורסים')));
             if (platform.plugin('MoodleBackground')) {
                 var backgroundToggle = $('<input class="form-check-input" type="checkbox" id="cf-moodle-background">').prop('checked', data.background !== false);
                 backgroundToggle.on('change', function () {
@@ -1025,6 +1133,7 @@
         renderFeed: renderFeed,
         showFeedDialog: showFeedDialog,
         showCourseMaterials: showCourseMaterials,
+        showMoodleCourseMaterials: showMoodleCourseMaterials,
         showConnectDialog: showConnectDialog,
         setBackgroundEnabled: setBackgroundEnabled,
         parseResources: parseResources,

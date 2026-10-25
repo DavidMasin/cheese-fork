@@ -79,3 +79,30 @@
     text-overflow: ellipsis;
     vertical-align: bottom;
 }
+
+/* Course list under the Moodle feed */
+.cf-moodle-courses {
+    margin-top: 0.75rem;
+}
+
+.cf-moodle-course {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    border: none;
+    background: none;
+    padding: 0.5rem 0.2rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    color: inherit;
+    text-align: start;
+    font-size: 0.9rem;
+}
+
+.cf-moodle-course-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
