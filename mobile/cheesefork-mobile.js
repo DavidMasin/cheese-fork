@@ -1736,6 +1736,33 @@
 
         $('body').addClass('cf-native cf-native-' + platform.os);
 
+        // External links open in a custom tab (Moodle files open in-app with
+        // the Moodle session) instead of replacing the app page.
+        document.addEventListener('click', function (event) {
+            var link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+            if (!link) {
+                return;
+            }
+            var href = link.getAttribute('href') || '';
+            if (!/^https?:\/\//i.test(href)) {
+                return;
+            }
+            var host;
+            try {
+                host = new URL(href).host;
+            } catch (e) {
+                return;
+            }
+            if (host === location.host) {
+                return;
+            }
+            event.preventDefault();
+            if (window.cheeseForkMoodle && window.cheeseForkMoodle.handleLink(href)) {
+                return;
+            }
+            openExternal(href);
+        }, true);
+
         var splash = platform.plugin('SplashScreen');
         if (splash) {
             splash.hide().catch(function () {});

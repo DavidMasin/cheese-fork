@@ -19,21 +19,21 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Schedules the periodic Moodle check (MoodleCheckWorker) and stores what it
- * needs: site, token, the courses to watch and the snapshot the app last saw.
+ * needs: the courses to watch and what the app has already seen. The session
+ * itself (site, sesskey, cookies) comes from MoodleSession.
  */
 @CapacitorPlugin(name = "MoodleBackground")
 public class MoodleBackgroundPlugin extends Plugin {
-    static final String PREFS = "cheesefork_moodle";
+    static final String PREFS = MoodleSession.PREFS;
     static final String WORK_NAME = "cheesefork-moodle-check";
 
     @PluginMethod
     public void configure(PluginCall call) {
         Context context = getContext();
         SharedPreferences.Editor editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
-        editor.putString("siteUrl", call.getString("siteUrl", ""));
-        editor.putString("token", call.getString("token", ""));
         editor.putString("courses", call.getArray("courses") != null ? call.getArray("courses").toString() : "[]");
-        editor.putString("snapshot", call.getObject("snapshot") != null ? call.getObject("snapshot").toString() : "{}");
+        editor.putString("knownCmids", call.getArray("knownCmids") != null ? call.getArray("knownCmids").toString() : "[]");
+        editor.putString("knownEvents", call.getArray("knownEvents") != null ? call.getArray("knownEvents").toString() : "[]");
         editor.putBoolean("enabled", true);
         editor.apply();
 
@@ -57,7 +57,12 @@ public class MoodleBackgroundPlugin extends Plugin {
     public void disable(PluginCall call) {
         Context context = getContext();
         WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME);
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply();
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("enabled", false)
+            .remove("courses")
+            .remove("knownCmids")
+            .remove("knownEvents")
+            .apply();
         call.resolve();
     }
 

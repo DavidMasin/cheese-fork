@@ -2,22 +2,24 @@
 
 /* global moment, BootstrapDialog, gtag */
 
-// Moodle integration through Moodle's own mobile web service: the app gets a
-// token the same way the official Moodle app does (browser login, token
-// handed back through the cheesefork:// URL scheme), then reads the enrolled
-// courses, their files and assignments. Provides:
-// - a "new on Moodle" feed (files/activities added since the last check)
-// - material matched to a lesson (slides for the next lecture, the tutorial
-//   sheet for the next tutorial) with download links
-// - assignments with due dates and links for the tasks tab
+// Moodle integration with a browser session. Technion's Moodle doesn't
+// issue web-service tokens to apps, so the user logs in once inside the app
+// (native MoodleLoginActivity, Technion SSO); the app then uses the session
+// with Moodle's session-enabled AJAX functions (courses, updates, deadlines)
+// and each course's standard resources page (files and activities).
+// Provides:
+// - a "new on Moodle" feed (items added since the last check)
+// - material matched to a lesson (latest slides for a lecture, latest sheet
+//   for a tutorial), opened in-app with the session
+// - deadlines (homework, quizzes) with links for the tasks tab
 // - a materials list for the AI helper
-// Everything is stored on the device only.
+// Everything is stored on the device only. Android app only.
 
 (function () {
-    var STORAGE_KEY = 'cheeseForkMoodleWs';
-    var DEFAULT_SITE = 'https://moodle.technion.ac.il';
+    var STORAGE_KEY = 'cheeseForkMoodleSession';
+    var OLD_STORAGE_KEY = 'cheeseForkMoodleWs';
+    var DISCOVERY_SITE = 'https://moodle.technion.ac.il';
     var SYNC_INTERVAL_MS = 30 * 60 * 1000;
-    var RECENT_DAYS = 21;
     var MAX_COURSES = 15;
 
     var platform = window.cheeseForkPlatform || {isNative: false, plugin: function () { return null; }};
@@ -40,10 +42,10 @@
         } catch (e) {
             data = {};
         }
-        data.siteUrl = data.siteUrl || DEFAULT_SITE;
         data.courses = data.courses || [];
         data.items = data.items || [];
-        data.snapshot = data.snapshot || {};
+        data.known = data.known || {};
+        data.knownEvents = data.knownEvents || {};
         data.newKeys = data.newKeys || [];
         return data;
     }
@@ -58,83 +60,50 @@
         renderAll();
     }
 
+    function session() {
+        return platform.plugin('MoodleSession');
+    }
+
+    function isAvailable() {
+        return !!session();
+    }
+
     function isConnected() {
-        return !!loadData().token;
+        return !!loadData().connected;
     }
 
     // ---------------------------------------------------------------------
-    // Moodle REST
+    // Session requests (native plugin)
     // ---------------------------------------------------------------------
 
-    function flattenParams(params, prefix, into) {
-        Object.keys(params).forEach(function (key) {
-            var value = params[key];
-            var name = prefix ? prefix + '[' + key + ']' : key;
-            if (value !== null && typeof value === 'object') {
-                flattenParams(value, name, into);
-            } else {
-                into[name] = String(value);
+    function expiredError() {
+        var error = new Error('expired');
+        error.expired = true;
+        return error;
+    }
+
+    function ajax(methodname, args) {
+        return session().ajax({methodname: methodname, args: JSON.stringify(args || {})}).then(function (result) {
+            if (result.expired) {
+                throw expiredError();
             }
+            return JSON.parse(result.data);
         });
-        return into;
     }
 
-    function restCall(data, wsfunction, params) {
-        var query = flattenParams(params || {}, '', {
-            wstoken: data.token,
-            wsfunction: wsfunction,
-            moodlewsrestformat: 'json'
-        });
-        var url = data.siteUrl.replace(/\/$/, '') + '/webservice/rest/server.php';
-
-        var http = platform.plugin('CapacitorHttp');
-        var request;
-        if (http) {
-            request = http.get({url: url, params: query, connectTimeout: 20000, readTimeout: 30000}).then(function (response) {
-                if (response.status !== 200) {
-                    throw new Error('HTTP ' + response.status);
-                }
-                return typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
-            });
-        } else {
-            var search = Object.keys(query).map(function (key) {
-                return encodeURIComponent(key) + '=' + encodeURIComponent(query[key]);
-            }).join('&');
-            request = fetch(url + '?' + search).then(function (response) {
-                if (!response.ok) {
-                    throw new Error('HTTP ' + response.status);
-                }
-                return response.json();
-            });
-        }
-
-        return request.then(function (result) {
-            if (result && result.exception) {
-                var error = new Error(result.message || result.errorcode || 'Moodle error');
-                error.errorcode = result.errorcode;
-                throw error;
+    function getPage(url) {
+        return session().getPage({url: url}).then(function (result) {
+            if (result.expired) {
+                throw expiredError();
             }
-            return result;
+            return result.body || '';
         });
     }
 
-    // ---------------------------------------------------------------------
-    // Connecting (browser SSO handoff, or a pasted token)
-    // ---------------------------------------------------------------------
-
-    function randomHex(length) {
-        var text = '';
-        for (var i = 0; i < length; i++) {
-            text += Math.floor(Math.random() * 16).toString(16);
-        }
-        return text;
-    }
-
-    // Asks Moodle (public endpoint, same as the official app) for its real
-    // address and login URL, e.g. moodle.technion.ac.il -> moodle26.technion.ac.il.
-    function discoverSite(siteUrl) {
-        var base = siteUrl.replace(/\/$/, '');
-        var url = base + '/lib/ajax/service-nologin.php?args=' +
+    // Moodle's public config tells the real address (moodle.technion.ac.il
+    // redirects to the yearly instance, e.g. moodle26.technion.ac.il).
+    function discoverSite() {
+        var url = DISCOVERY_SITE + '/lib/ajax/service-nologin.php?args=' +
             encodeURIComponent('[{"index":0,"methodname":"tool_mobile_get_public_config","args":{}}]');
         var http = platform.plugin('CapacitorHttp');
         var request = http
@@ -149,195 +118,68 @@
             if (!config || !config.wwwroot) {
                 throw new Error('no-config');
             }
-            return {
-                wwwroot: String(config.wwwroot).replace(/\/$/, ''),
-                launchurl: config.launchurl || (String(config.wwwroot).replace(/\/$/, '') + '/admin/tool/mobile/launch.php'),
-                mobileEnabled: config.enablemobilewebservice !== 0 && config.enablemobilewebservice !== false,
-                forcedScheme: config.forcedurlscheme || null
-            };
+            return String(config.wwwroot).replace(/\/$/, '');
+        }).catch(function () {
+            return loadData().siteUrl || DISCOVERY_SITE;
         });
     }
 
-    function connectViaBrowser() {
-        trackEvent('moodle-sso-start');
-        var data = loadData();
-        var waiting = showWaitingDialog();
+    // ---------------------------------------------------------------------
+    // Connecting
+    // ---------------------------------------------------------------------
 
-        discoverSite(data.siteUrl).catch(function () {
-            return {wwwroot: data.siteUrl.replace(/\/$/, ''), launchurl: data.siteUrl.replace(/\/$/, '') + '/admin/tool/mobile/launch.php', mobileEnabled: true, forcedScheme: null};
-        }).then(function (config) {
-            if (!config.mobileEnabled) {
-                waiting.close();
-                toast('שירות האפליקציות של Moodle כבוי באתר זה');
-                return;
-            }
-            var latest = loadData();
-            latest.passport = randomHex(32);
-            latest.pendingSite = config.wwwroot;
-            latest.siteUrl = config.wwwroot;
-            saveData(latest);
-
-            var scheme = config.forcedScheme || 'cheesefork';
-            var url = config.launchurl + '?service=moodle_mobile_app&passport=' + latest.passport + '&urlscheme=' + encodeURIComponent(scheme);
-            waiting.setUrl(url, scheme !== 'cheesefork');
-            if (mobile) {
-                mobile.openExternal(url);
-            } else {
-                window.open(url, '_blank', 'noopener');
-            }
-        });
-    }
-
-    function showWaitingDialog() {
-        var link = $('<a class="btn btn-outline-primary btn-sm d-none" target="_blank" rel="noopener"><i class="fas fa-external-link-alt"></i> פתיחת ההתחברות ידנית</a>');
-        var note = $('<div class="cf-mobile-small text-muted mt-2"></div>');
-        var tokenInput = $('<input type="password" class="form-control form-control-sm mt-2" dir="ltr" placeholder="או הדביקו כאן מפתח מ-Moodle">');
-        var dialog = BootstrapDialog.show({
-            title: 'התחברות ל-Moodle',
-            message: $('<div></div>').append(
-                '<p>הדפדפן נפתח להזדהות טכניונית. אחרי ההתחברות Moodle יחזיר אתכם לאפליקציה (אם Android שואל, בחרו "CheeseFork").</p>',
-                link, note, tokenInput),
-            buttons: [{
-                label: 'חיבור עם מפתח',
-                action: function (d) {
-                    var token = tokenInput.val().trim();
-                    if (!token) {
-                        return;
-                    }
-                    d.close();
-                    connectWithToken(token, null, loadData().pendingSite || loadData().siteUrl);
+    function connect() {
+        trackEvent('moodle-login-start');
+        if (!isAvailable()) {
+            showAppOnlyDialog();
+            return Promise.resolve(false);
+        }
+        return discoverSite().then(function (site) {
+            return session().login({siteUrl: site}).then(function (result) {
+                if (!result || !result.loggedIn) {
+                    toast('ההתחברות ל-Moodle בוטלה');
+                    return false;
                 }
-            }, {
-                label: 'סגור',
-                cssClass: 'btn-primary',
-                action: function (d) {
-                    d.close();
-                }
-            }]
-        });
-        var handler = function () {
-            dialog.close();
-        };
-        $(document).one('cheesefork:moodle-synced', handler);
-        return {
-            close: function () {
-                $(document).off('cheesefork:moodle-synced', handler);
-                dialog.close();
-            },
-            setUrl: function (url, forcedScheme) {
-                link.prop('href', url).removeClass('d-none');
-                if (forcedScheme) {
-                    note.text('האתר מחייב את אפליקציית Moodle הרשמית לקבלת המפתח. אפשר במקום זאת להדביק מפתח ידנית.');
-                } else {
-                    note.text('אם הדפדפן לא נפתח, לחצו על הכפתור למעלה.');
-                }
-            }
-        };
-    }
-
-    // Handles cheesefork://token=<base64(siteid:::token:::privatetoken)>.
-    function handleAppUrl(url) {
-        var match = /^cheesefork:\/\/token=([A-Za-z0-9+/=%_-]+)/i.exec(url || '');
-        if (!match) {
-            return false;
-        }
-        trackEvent('moodle-sso-callback');
-        var decoded;
-        try {
-            decoded = atob(decodeURIComponent(match[1]).replace(/-/g, '+').replace(/_/g, '/'));
-        } catch (e) {
-            toast('קוד ההתחברות מ-Moodle לא תקין');
-            return true;
-        }
-        var parts = decoded.split(':::');
-        if (parts.length < 2) {
-            toast('קוד ההתחברות מ-Moodle לא תקין');
-            return true;
-        }
-
-        var data = loadData();
-        if (!data.passport || !data.pendingSite) {
-            // No login was started from the app; ignore stray/forged URLs.
-            toast('לא התחלתם התחברות ל-Moodle מהאפליקציה');
-            return true;
-        }
-        var expected = md5(data.pendingSite.replace(/\/$/, '') + data.passport);
-        if (parts[0] !== expected && parts[0] !== md5(data.pendingSite + data.passport)) {
-            toast('ההתחברות ל-Moodle לא אומתה, נסו שוב');
-            return true;
-        }
-
-        var browser = platform.plugin('Browser');
-        if (browser) {
-            browser.close().catch(function () {});
-        }
-        connectWithToken(parts[1], parts[2] || null, data.pendingSite);
-        return true;
-    }
-
-    function connectWithToken(token, privateToken, siteUrl) {
-        var data = loadData();
-        data.siteUrl = (siteUrl || data.siteUrl).replace(/\/$/, '');
-        data.token = token;
-        data.privateToken = privateToken || null;
-        data.passport = null;
-        data.pendingSite = null;
-        data.lastError = null;
-        saveData(data);
-        toast('מתחבר ל-Moodle...');
-        return sync(true);
-    }
-
-    // Background checks (Android): a periodic worker compares the courses
-    // with the snapshot the app last saw and notifies about new items.
-    function configureBackground(data) {
-        var background = platform.plugin('MoodleBackground');
-        if (!background) {
-            return;
-        }
-        if (!data.token || data.background === false) {
-            background.disable().catch(function () {});
-            return;
-        }
-        var notifications = platform.plugin('LocalNotifications');
-        var permission = notifications ? notifications.requestPermissions().catch(function () {
-            return null;
-        }) : Promise.resolve(null);
-        permission.then(function () {
-            return background.configure({
-                siteUrl: data.siteUrl,
-                token: data.token,
-                courses: data.courses.map(function (course) {
-                    return {id: course.id, name: course.fullname};
-                }),
-                snapshot: data.snapshot,
-                intervalMinutes: 30
+                trackEvent('moodle-login-done');
+                var data = loadData();
+                data.connected = true;
+                data.expired = false;
+                data.lastError = null;
+                data.siteUrl = (result.site || site).replace(/\/$/, '');
+                saveData(data);
+                toast('מחובר ל-Moodle, מסנכרן...');
+                return sync(true).then(function () {
+                    return true;
+                });
             });
-        }).catch(function () {});
-    }
-
-    function setBackgroundEnabled(enabled) {
-        var data = loadData();
-        data.background = enabled;
-        saveData(data);
-        configureBackground(data);
+        }).catch(function (error) {
+            toast('ההתחברות נכשלה: ' + (error && error.message));
+            return false;
+        });
     }
 
     function disconnect() {
-        var data = loadData();
+        var plugin = session();
+        if (plugin) {
+            plugin.logout().catch(function () {});
+        }
         var background = platform.plugin('MoodleBackground');
         if (background) {
             background.disable().catch(function () {});
         }
-        localStorage.removeItem(STORAGE_KEY);
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {
+            // Ignore.
+        }
         if (window.cheeseForkTasks) {
             window.cheeseForkTasks.removeTasksBySource('moodlews');
         }
-        saveData({siteUrl: data.siteUrl});
+        saveData({});
     }
 
     // ---------------------------------------------------------------------
-    // Sync
+    // Parsing
     // ---------------------------------------------------------------------
 
     function courseNumberIn(text) {
@@ -358,10 +200,6 @@
         return null;
     }
 
-    function stripHtml(html) {
-        return $('<div>').html(String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n')).text().replace(/\n{3,}/g, '\n\n').trim();
-    }
-
     function kindOf(modname, text) {
         if (modname === 'assign') {
             return 'homework';
@@ -372,11 +210,11 @@
         if (modname === 'forum') {
             return 'forum';
         }
-        if (/תרגיל[י]?\s*בית|ת"ב|\bhw\s*\d|homework|assignment|מטלה|להגשה|הגשה/i.test(text)) {
-            return 'homework';
-        }
         if (/פתרון|פתרונות|solution/i.test(text)) {
             return 'solution';
+        }
+        if (/תרגיל[י]?\s*בית|ת"ב|\bhw\s*\d|homework|assignment|מטלה|להגשה|הגשה/i.test(text)) {
+            return 'homework';
         }
         if (/תרגול|תירגול|תרגולים|tutorial|recitation|\btut\b|דף\s*תרגול|תרגיל\s*\d/i.test(text)) {
             return 'tutorial';
@@ -412,200 +250,229 @@
         other: 'fa-file'
     };
 
-    function fileLink(data, fileurl) {
-        if (!fileurl) {
-            return null;
-        }
-        return fileurl + (fileurl.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(data.token);
+    // The course's resources page (course/resources.php) lists every file,
+    // folder, link and page with its section.
+    function parseResources(html, course, site) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var items = [];
+        var seen = {};
+        var lastSection = '';
+
+        var rows = doc.querySelectorAll('table tbody tr');
+        var candidates = rows.length > 0 ? Array.prototype.slice.call(rows) : [doc.body];
+
+        candidates.forEach(function (row) {
+            if (row.cells && row.cells.length > 1) {
+                var sectionText = row.cells[0].textContent.trim();
+                if (sectionText) {
+                    lastSection = sectionText;
+                }
+            }
+            Array.prototype.forEach.call(row.querySelectorAll('a[href*="/mod/"]'), function (link) {
+                var match = /\/mod\/(\w+)\/view\.php\?id=(\d+)/.exec(link.getAttribute('href') || '');
+                if (!match || seen[match[2]]) {
+                    return;
+                }
+                seen[match[2]] = true;
+                var clone = link.cloneNode(true);
+                Array.prototype.forEach.call(clone.querySelectorAll('.accesshide, .sr-only, .visually-hidden'), function (hidden) {
+                    hidden.remove();
+                });
+                var name = clone.textContent.replace(/\s+/g, ' ').trim() || 'פריט';
+                var cmid = parseInt(match[2], 10);
+                var section = row.cells && row.cells.length > 1 ? lastSection : '';
+                items.push({
+                    key: 'm' + cmid,
+                    cmid: cmid,
+                    modname: match[1],
+                    name: name,
+                    section: section,
+                    url: site + '/mod/' + match[1] + '/view.php?id=' + cmid,
+                    courseId: course.id,
+                    course: course.course,
+                    courseName: course.fullname,
+                    kind: kindOf(match[1], name + ' ' + section)
+                });
+            });
+        });
+
+        return items;
     }
+
+    // ---------------------------------------------------------------------
+    // Sync
+    // ---------------------------------------------------------------------
 
     function sync(interactive) {
         var data = loadData();
-        if (!data.token || state.syncing) {
+        if (!data.connected || !isAvailable() || state.syncing) {
             return Promise.resolve(null);
         }
         state.syncing = true;
         renderAll();
 
         var now = Date.now();
+        var site = data.siteUrl;
         var courses = [];
+        var resourceItems = [];
+        var updatedCmids = {};
+        var events = [];
 
-        return restCall(data, 'core_webservice_get_site_info', {}).then(function (info) {
-            data.userId = info.userid;
-            data.userName = info.fullname;
-            if (info.siteurl) {
-                data.siteUrl = info.siteurl.replace(/\/$/, '');
-            }
-            return restCall(data, 'core_enrol_get_users_courses', {userid: info.userid, returnusercount: 0});
-        }).then(function (list) {
-            var cutoff = now / 1000 - 45 * 24 * 3600;
-            courses = (list || []).filter(function (course) {
-                if (course.visible === 0) {
-                    return false;
-                }
-                return !course.enddate || course.enddate > cutoff;
-            }).sort(function (a, b) {
-                return (b.lastaccess || 0) - (a.lastaccess || 0);
-            }).slice(0, MAX_COURSES).map(function (course) {
+        return ajax('core_course_get_enrolled_courses_by_timeline_classification', {
+            classification: 'inprogress',
+            limit: 0,
+            offset: 0,
+            sort: 'fullname'
+        }).then(function (result) {
+            courses = ((result && result.courses) || []).slice(0, MAX_COURSES).map(function (course) {
                 return {
                     id: course.id,
-                    fullname: course.fullname,
-                    shortname: course.shortname,
+                    fullname: course.fullname || course.shortname || '',
+                    shortname: course.shortname || '',
                     course: courseNumberIn(course.fullname) || courseNumberIn(course.shortname) || courseNumberIn(course.idnumber),
-                    lastaccess: course.lastaccess || 0
+                    viewurl: course.viewurl || (site + '/course/view.php?id=' + course.id)
                 };
             });
-            data.courses = courses;
 
-            return Promise.all(courses.map(function (course) {
-                return restCall(data, 'core_course_get_contents', {
-                    courseid: course.id,
-                    options: [{name: 'excludemodules', value: 0}]
-                }).then(function (sections) {
-                    return {course: course, sections: sections || []};
-                }, function () {
-                    return {course: course, sections: []};
-                });
-            }));
-        }).then(function (results) {
-            var items = [];
-            results.forEach(function (result) {
-                var course = result.course;
-                result.sections.forEach(function (section) {
-                    (section.modules || []).forEach(function (module) {
-                        if (module.uservisible === false || module.visible === 0) {
-                            return;
+            // One course at a time keeps the load on Moodle low.
+            return courses.reduce(function (chain, course) {
+                return chain.then(function () {
+                    return getPage(site + '/course/resources.php?id=' + course.id).then(function (html) {
+                        resourceItems = resourceItems.concat(parseResources(html, course, site));
+                    }, function (error) {
+                        if (error && error.expired) {
+                            throw error;
                         }
-                        if (module.modname === 'label') {
-                            return;
-                        }
-                        var base = {
-                            cmid: module.id,
-                            courseId: course.id,
-                            course: course.course,
-                            courseName: course.fullname,
-                            section: section.name || '',
-                            modname: module.modname,
-                            name: module.name,
-                            moduleUrl: module.url || (data.siteUrl + '/mod/' + module.modname + '/view.php?id=' + module.id)
-                        };
-                        var files = (module.contents || []).filter(function (content) {
-                            return content.type === 'file' && content.fileurl;
-                        });
-                        var dueDate = null;
-                        (module.dates || []).forEach(function (date) {
-                            if (/due|close/i.test(date.dataid || '') && date.timestamp) {
-                                dueDate = date.timestamp * 1000;
+                    });
+                }).then(function () {
+                    if (!data.lastSync) {
+                        return null;
+                    }
+                    return ajax('core_course_get_updates_since', {
+                        courseid: course.id,
+                        since: Math.floor(data.lastSync / 1000)
+                    }).then(function (result) {
+                        ((result && result.instances) || []).forEach(function (instance) {
+                            if (instance.contextlevel === 'module' && (instance.updates || []).some(function (update) {
+                                return update.name === 'fileareas' || update.name === 'configuration';
+                            })) {
+                                updatedCmids[instance.id] = true;
                             }
                         });
-                        if (files.length > 0 && module.modname !== 'assign') {
-                            files.forEach(function (file) {
-                                items.push($.extend({}, base, {
-                                    key: 'f' + module.id + ':' + file.filename,
-                                    filename: file.filename,
-                                    url: fileLink(data, file.fileurl),
-                                    mimetype: file.mimetype || '',
-                                    size: file.filesize || 0,
-                                    timemodified: (file.timemodified || 0) * 1000,
-                                    kind: kindOf(module.modname, module.name + ' ' + section.name + ' ' + file.filename)
-                                }));
-                            });
-                        } else {
-                            items.push($.extend({}, base, {
-                                key: 'm' + module.id,
-                                filename: null,
-                                url: base.moduleUrl,
-                                timemodified: ((module.timemodified || 0) * 1000) || dueDate || 0,
-                                due: dueDate,
-                                kind: kindOf(module.modname, module.name + ' ' + section.name)
-                            }));
+                    }, function (error) {
+                        if (error && error.expired) {
+                            throw error;
                         }
                     });
                 });
-            });
-
-            // New since the last sync (first sync: the last 7 days).
-            var firstSync = !data.lastSync;
-            var newKeys = data.newKeys.slice();
-            var known = {};
-            newKeys.forEach(function (entry) {
-                known[entry.key] = true;
-            });
-            items.forEach(function (item) {
-                var previous = data.snapshot[item.key];
-                var isNew = firstSync
-                    ? item.timemodified > now - 7 * 24 * 3600 * 1000
-                    : (previous === undefined || item.timemodified > previous);
-                if (isNew && !known[item.key] && item.timemodified > now - 60 * 24 * 3600 * 1000) {
-                    newKeys.push({key: item.key, foundAt: now});
-                    known[item.key] = true;
+            }, Promise.resolve());
+        }).then(function () {
+            return ajax('core_calendar_get_action_events_by_timesort', {
+                timesortfrom: Math.floor(now / 1000) - 2 * 86400,
+                limitnum: 50,
+                limittononsuspendedevents: true
+            }).then(function (result) {
+                events = (result && result.events) || [];
+            }, function (error) {
+                if (error && error.expired) {
+                    throw error;
                 }
-            });
-            // Keep at most 60 unread entries.
-            data.newKeys = newKeys.slice(-60);
-
-            var snapshot = {};
-            items.forEach(function (item) {
-                snapshot[item.key] = item.timemodified;
-            });
-            data.snapshot = snapshot;
-            data.items = items.sort(function (a, b) {
-                return b.timemodified - a.timemodified;
-            }).slice(0, 600);
-
-            var courseIds = courses.map(function (course) {
-                return course.id;
-            });
-            if (courseIds.length === 0) {
-                return null;
-            }
-            return restCall(data, 'mod_assign_get_assignments', {courseids: courseIds}).then(function (result) {
-                var assignments = [];
-                ((result && result.courses) || []).forEach(function (course) {
-                    var mapped = courses.filter(function (item) {
-                        return item.id === course.id;
-                    })[0];
-                    (course.assignments || []).forEach(function (assignment) {
-                        if (!assignment.duedate && assignment.timemodified < now / 1000 - 30 * 24 * 3600) {
-                            return;
-                        }
-                        assignments.push({
-                            id: 'moodlews:' + assignment.id,
-                            title: assignment.name,
-                            course: mapped ? mapped.course : null,
-                            courseName: course.fullname || (mapped ? mapped.fullname : ''),
-                            due: assignment.duedate ? moment(assignment.duedate * 1000).format('YYYY-MM-DDTHH:mm') : null,
-                            url: data.siteUrl + '/mod/assign/view.php?id=' + assignment.cmid,
-                            description: stripHtml(assignment.intro).slice(0, 2000),
-                            source: 'moodlews',
-                            kind: 'due'
-                        });
-                    });
-                });
-                if (window.cheeseForkTasks) {
-                    window.cheeseForkTasks.importAssignments(assignments);
-                }
-                return null;
-            }, function () {
-                return null;
             });
         }).then(function () {
+            var firstSync = !data.lastSync;
+            var newKeys = data.newKeys.slice();
+            var inFeed = {};
+            newKeys.forEach(function (entry) {
+                inFeed[entry.key] = true;
+            });
+
+            resourceItems.forEach(function (item) {
+                if (data.known[item.key] === undefined) {
+                    data.known[item.key] = firstSync ? 0 : now;
+                    if (!firstSync && !inFeed[item.key]) {
+                        newKeys.push({key: item.key, foundAt: now});
+                        inFeed[item.key] = true;
+                    }
+                } else if (updatedCmids[item.cmid] && !inFeed[item.key]) {
+                    newKeys.push({key: item.key, foundAt: now, updated: true});
+                    inFeed[item.key] = true;
+                }
+                item.firstSeen = data.known[item.key];
+            });
+
+            var courseById = {};
+            courses.forEach(function (course) {
+                courseById[course.id] = course;
+            });
+
+            var eventItems = events.map(function (event) {
+                var course = event.course ? courseById[event.course.id] : null;
+                var key = 'e' + event.id;
+                if (data.knownEvents[key] === undefined) {
+                    data.knownEvents[key] = firstSync ? 0 : now;
+                    if (!firstSync && !inFeed[key]) {
+                        newKeys.push({key: key, foundAt: now});
+                        inFeed[key] = true;
+                    }
+                }
+                return {
+                    key: key,
+                    eventId: event.id,
+                    cmid: null,
+                    modname: event.modulename || 'event',
+                    name: event.activityname || event.name,
+                    section: '',
+                    url: event.url || (event.action && event.action.url) || (site + '/calendar/view.php?view=upcoming'),
+                    courseId: event.course ? event.course.id : null,
+                    course: course ? course.course : courseNumberIn(event.course && event.course.fullname),
+                    courseName: event.course ? event.course.fullname : '',
+                    kind: kindOf(event.modulename, event.activityname || event.name || ''),
+                    due: (event.timesort || 0) * 1000,
+                    firstSeen: data.knownEvents[key]
+                };
+            });
+
+            // Deadlines into the tasks tab (deduplicated with the calendar export).
+            if (window.cheeseForkTasks) {
+                window.cheeseForkTasks.importAssignments(eventItems.filter(function (item) {
+                    return item.due;
+                }).map(function (item) {
+                    return {
+                        id: 'moodlews:' + item.eventId,
+                        title: item.name,
+                        course: item.course,
+                        courseName: item.courseName,
+                        due: moment(item.due).format('YYYY-MM-DDTHH:mm'),
+                        url: item.url,
+                        description: '',
+                        source: 'moodlews',
+                        kind: 'due'
+                    };
+                }));
+            }
+
+            data.courses = courses;
+            data.items = resourceItems.sort(function (a, b) {
+                return b.cmid - a.cmid;
+            }).concat(eventItems).slice(0, 800);
+            data.newKeys = newKeys.slice(-60);
             data.lastSync = now;
             data.lastError = null;
+            data.expired = false;
             state.syncing = false;
             saveData(data);
             configureBackground(data);
             if (interactive) {
-                toast('Moodle סונכרן: ' + data.courses.length + ' קורסים, ' + countUnread() + ' פריטים חדשים');
+                toast('Moodle סונכרן: ' + courses.length + ' קורסים, ' + countUnread() + ' פריטים חדשים');
             }
             $(document).trigger('cheesefork:moodle-synced');
             return data;
         }).catch(function (error) {
             state.syncing = false;
             var latest = loadData();
-            if (error && (error.errorcode === 'invalidtoken' || error.errorcode === 'accessexception')) {
-                latest.token = null;
-                latest.lastError = 'ההתחברות ל-Moodle פגה, יש להתחבר מחדש.';
+            if (error && error.expired) {
+                latest.expired = true;
+                latest.lastError = 'ההתחברות ל-Moodle פגה. התחברו מחדש כדי להמשיך לקבל עדכונים.';
             } else {
                 latest.lastError = 'הסנכרון עם Moodle נכשל: ' + (error && error.message);
             }
@@ -619,13 +486,55 @@
 
     function autoSync() {
         var data = loadData();
-        if (!data.token) {
+        if (!data.connected || data.expired) {
             return;
         }
         if (data.lastSync && Date.now() - data.lastSync < SYNC_INTERVAL_MS) {
             return;
         }
         sync(false);
+    }
+
+    // Background checks (Android): a periodic worker uses the same session
+    // and notifies about items the app hasn't seen.
+    function configureBackground(data) {
+        var background = platform.plugin('MoodleBackground');
+        if (!background) {
+            return;
+        }
+        if (!data.connected || data.background === false) {
+            background.disable().catch(function () {});
+            return;
+        }
+        var notifications = platform.plugin('LocalNotifications');
+        var permission = notifications ? notifications.requestPermissions().catch(function () {
+            return null;
+        }) : Promise.resolve(null);
+        permission.then(function () {
+            return background.configure({
+                courses: data.courses.map(function (course) {
+                    return {id: course.id, name: course.fullname};
+                }),
+                knownCmids: data.items.filter(function (item) {
+                    return item.cmid;
+                }).map(function (item) {
+                    return String(item.cmid);
+                }),
+                knownEvents: data.items.filter(function (item) {
+                    return item.eventId;
+                }).map(function (item) {
+                    return String(item.eventId);
+                }),
+                intervalMinutes: 30
+            });
+        }).catch(function () {});
+    }
+
+    function setBackgroundEnabled(enabled) {
+        var data = loadData();
+        data.background = enabled;
+        saveData(data);
+        configureBackground(data);
     }
 
     // ---------------------------------------------------------------------
@@ -644,9 +553,9 @@
         });
         return data.newKeys.map(function (entry) {
             var item = byKey[entry.key];
-            return item ? $.extend({foundAt: entry.foundAt}, item) : null;
+            return item ? $.extend({foundAt: entry.foundAt, updated: !!entry.updated}, item) : null;
         }).filter(Boolean).sort(function (a, b) {
-            return b.timemodified - a.timemodified;
+            return b.foundAt - a.foundAt || (b.cmid || 0) - (a.cmid || 0);
         });
     }
 
@@ -658,7 +567,7 @@
 
     function getCourseItems(course) {
         return loadData().items.filter(function (item) {
-            return item.course === course;
+            return item.course === course && item.cmid;
         });
     }
 
@@ -675,16 +584,17 @@
         return null;
     }
 
-    // Recent files of the lesson's course matching its type (lecture slides
-    // for a lecture, the tutorial sheet for a tutorial).
+    var MATERIAL_MODULES = ['resource', 'folder', 'url', 'page', 'book'];
+
+    // The latest material of the lesson's course matching its type (newer
+    // modules have higher ids): slides for a lecture, the sheet for a tutorial.
     function getMaterialsForLesson(item, limit) {
         if (!item || item.isCustom || !item.course) {
             return [];
         }
         var kind = lessonKind(item.type || '');
-        var cutoff = Date.now() - RECENT_DAYS * 24 * 3600 * 1000;
         var items = getCourseItems(item.course).filter(function (entry) {
-            return entry.filename && entry.timemodified > cutoff;
+            return MATERIAL_MODULES.indexOf(entry.modname) !== -1;
         });
         var matching = kind ? items.filter(function (entry) {
             return entry.kind === kind;
@@ -694,33 +604,87 @@
                 return entry.kind !== 'homework' && entry.kind !== 'solution';
             });
         }
-        return matching.slice(0, limit || 3);
+        return matching.sort(function (a, b) {
+            return b.cmid - a.cmid;
+        }).slice(0, limit || 3);
     }
 
     // Compact text for the AI helper.
     function getRecentMaterialsText() {
         var data = loadData();
-        if (!data.token || data.items.length === 0) {
+        if (!data.connected || data.items.length === 0) {
             return '';
         }
-        var cutoff = Date.now() - RECENT_DAYS * 24 * 3600 * 1000;
         var lines = [];
         data.courses.forEach(function (course) {
             var items = data.items.filter(function (item) {
-                return item.courseId === course.id && item.timemodified > cutoff;
+                return item.courseId === course.id && item.cmid;
             }).slice(0, 10);
-            if (items.length === 0) {
+            var deadlines = data.items.filter(function (item) {
+                return item.courseId === course.id && item.eventId;
+            });
+            if (items.length === 0 && deadlines.length === 0) {
                 return;
             }
-            lines.push('קורס ' + (course.course ? course.course + ' ' : '') + course.fullname + ':');
+            lines.push('קורס ' + (course.course ? course.course + ' ' : '') + course.fullname + ' (מהחדש לישן):');
             items.forEach(function (item) {
                 lines.push('- ' + (KIND_LABELS[item.kind] || '') + ': ' + item.name +
-                    (item.filename && item.filename !== item.name ? ' (' + item.filename + ')' : '') +
                     (item.section ? ' | ' + item.section : '') +
-                    ' | ' + moment(item.timemodified).format('DD/MM') + ' | ' + item.url);
+                    (item.firstSeen ? ' | נוסף ' + moment(item.firstSeen).format('DD/MM') : '') +
+                    ' | ' + item.url);
+            });
+            deadlines.forEach(function (item) {
+                lines.push('- מועד: ' + item.name + ' עד ' + moment(item.due).format('DD/MM HH:mm') + ' | ' + item.url);
             });
         });
         return lines.join('\n');
+    }
+
+    // ---------------------------------------------------------------------
+    // Opening items
+    // ---------------------------------------------------------------------
+
+    function openExternal(url) {
+        if (mobile && mobile.openExternal) {
+            mobile.openExternal(url);
+        } else {
+            window.open(url, '_blank', 'noopener');
+        }
+    }
+
+    // Files open inside the app with the session; everything else in the browser.
+    function openUrl(url) {
+        var data = loadData();
+        var match = /\/mod\/resource\/view\.php\?id=(\d+)/.exec(url);
+        if (!match || !data.connected || !isAvailable()) {
+            openExternal(url);
+            return;
+        }
+        trackEvent('moodle-open-file');
+        toast('פותח את הקובץ...');
+        session().openFile({url: data.siteUrl + '/mod/resource/view.php?id=' + match[1] + '&redirect=1'}).then(function (result) {
+            if (result.expired) {
+                var latest = loadData();
+                latest.expired = true;
+                saveData(latest);
+                toast('ההתחברות ל-Moodle פגה, פותח בדפדפן');
+                openExternal(url);
+            } else if (result.html) {
+                openExternal(url);
+            }
+        }).catch(function () {
+            openExternal(url);
+        });
+    }
+
+    // Called by the app's link handler for every external link.
+    function handleLink(url) {
+        var data = loadData();
+        if (!data.siteUrl || url.indexOf(data.siteUrl) !== 0) {
+            return false;
+        }
+        openUrl(url);
+        return true;
     }
 
     // ---------------------------------------------------------------------
@@ -741,7 +705,7 @@
         var row = $('<div class="cf-moodle-item"></div>');
         row.append($('<i class="fas fa-fw cf-moodle-icon"></i>').addClass(KIND_ICONS[item.kind] || 'fa-file'));
         var body = $('<div class="cf-moodle-body"></div>');
-        body.append($('<div class="cf-moodle-name"></div>').text(item.name + (item.filename && item.filename !== item.name ? ' · ' + item.filename : '')));
+        body.append($('<div class="cf-moodle-name"></div>').text(item.name + (item.updated ? ' (עודכן)' : '')));
         var meta = [];
         if (!options.hideCourse) {
             meta.push((item.courseName || '').replace(/^\d{6,10}\s*[-–:]\s*/, '').slice(0, 30));
@@ -750,14 +714,18 @@
             meta.push(item.section.slice(0, 30));
         }
         meta.push(KIND_LABELS[item.kind] || '');
-        meta.push(moment(item.timemodified).format('DD/MM HH:mm'));
+        if (item.due) {
+            meta.push('עד ' + moment(item.due).format('DD/MM HH:mm'));
+        } else if (item.firstSeen) {
+            meta.push('נוסף ' + moment(item.firstSeen).format('DD/MM'));
+        }
         body.append($('<div class="cf-moodle-meta"></div>').text(meta.filter(Boolean).join(' · ')));
         row.append(body);
-        row.append($('<a class="btn btn-sm btn-outline-primary cf-moodle-open" target="_blank" rel="noopener"></a>')
-            .prop('href', item.url)
-            .html(item.filename ? '<i class="fas fa-download"></i>' : '<i class="fas fa-external-link-alt"></i>')
+        row.append($('<button type="button" class="btn btn-sm btn-outline-primary cf-moodle-open"></button>')
+            .html(item.modname === 'resource' ? '<i class="fas fa-download"></i>' : '<i class="fas fa-external-link-alt"></i>')
             .click(function () {
                 trackEvent('moodle-open-item');
+                openUrl(item.url);
             }));
         return row;
     }
@@ -769,9 +737,9 @@
         container.empty().addClass('cf-moodle-feed');
         var data = loadData();
 
-        if (!data.token) {
+        if (!data.connected) {
             container.append($('<div class="cf-moodle-connect"></div>').append(
-                $('<span class="cf-mobile-small text-muted">חברו את חשבון ה-Moodle כדי לראות חומרים חדשים, קבצים לכל שיעור ומטלות עם קישורים.</span>'),
+                $('<span class="cf-mobile-small text-muted">התחברו ל-Moodle כדי לראות חומרים חדשים, קבצים לכל שיעור ומועדי הגשה.</span>'),
                 $('<button type="button" class="btn btn-sm btn-outline-primary mt-1"><i class="fas fa-link"></i> חיבור ל-Moodle</button>').click(showConnectDialog)));
             return;
         }
@@ -792,13 +760,17 @@
         header.append(actions);
         container.append(header);
 
-        if (data.lastError) {
+        if (data.expired) {
+            container.append($('<div class="cf-moodle-connect"></div>').append(
+                $('<span class="cf-mobile-small text-danger"></span>').text(data.lastError || 'ההתחברות ל-Moodle פגה.'),
+                $('<button type="button" class="btn btn-sm btn-primary mt-1 d-block"><i class="fas fa-sign-in-alt"></i> התחברות מחדש</button>').click(connect)));
+        } else if (data.lastError) {
             container.append($('<div class="cf-mobile-small text-danger"></div>').text(data.lastError));
         }
 
         if (unread.length === 0) {
             container.append($('<div class="cf-mobile-small text-muted"></div>').text(
-                'אין פריטים חדשים' + (data.lastSync ? ' · נבדק ' + moment(data.lastSync).format('DD/MM HH:mm') : '') + '.'));
+                (data.lastSync ? 'אין פריטים חדשים · נבדק ' + moment(data.lastSync).format('DD/MM HH:mm') : 'מסנכרן...')));
             return;
         }
 
@@ -830,9 +802,10 @@
         var data = loadData();
         var container = $('<div></div>');
         var title = api.courseManager.doesExist(course) ? api.courseManager.getGeneralInfo(course)['שם מקצוע'] : course;
+        var dialog;
 
-        if (!data.token) {
-            container.append('<p>חברו את Moodle כדי לראות את חומרי הקורס.</p>');
+        if (!data.connected) {
+            container.append('<p>התחברו ל-Moodle כדי לראות את חומרי הקורס.</p>');
             container.append($('<button type="button" class="btn btn-primary btn-sm">חיבור ל-Moodle</button>').click(function () {
                 dialog.close();
                 showConnectDialog();
@@ -848,15 +821,24 @@
             if (lessonType) {
                 var forLesson = getMaterialsForLesson({course: course, type: lessonType}, 4);
                 if (forLesson.length > 0) {
-                    container.append($('<h6 class="cf-moodle-subtitle"></h6>').text('חומר ל' + lessonType.replace(/\s*\d+$/, '') + ' הקרוב'));
+                    container.append($('<h6 class="cf-moodle-subtitle"></h6>').text('החומר האחרון ל' + lessonType.replace(/\s*\d+$/, '')));
                     forLesson.forEach(function (item) {
                         container.append(makeItemRow(item, {hideCourse: true}));
                     });
                 }
             }
+            var deadlines = data.items.filter(function (item) {
+                return item.eventId && item.course === course;
+            });
+            if (deadlines.length > 0) {
+                container.append($('<h6 class="cf-moodle-subtitle">מועדי הגשה</h6>'));
+                deadlines.forEach(function (item) {
+                    container.append(makeItemRow(item, {hideCourse: true}));
+                });
+            }
             if (items.length > 0) {
                 container.append($('<h6 class="cf-moodle-subtitle"></h6>').text('כל החומרים (חדש למעלה)'));
-                items.slice(0, 60).forEach(function (item) {
+                items.slice(0, 80).forEach(function (item) {
                     container.append(makeItemRow(item, {hideCourse: true}));
                 });
             } else if (moodleCourse) {
@@ -864,12 +846,13 @@
             }
             if (moodleCourse) {
                 container.append($('<div class="mt-2"></div>').append(
-                    $('<a target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary"><i class="fas fa-external-link-alt"></i> פתיחת הקורס ב-Moodle</a>')
-                        .prop('href', data.siteUrl + '/course/view.php?id=' + moodleCourse.id)));
+                    $('<button type="button" class="btn btn-sm btn-outline-secondary"><i class="fas fa-external-link-alt"></i> פתיחת הקורס ב-Moodle</button>').click(function () {
+                        openExternal(moodleCourse.viewurl);
+                    })));
             }
         }
 
-        var dialog = BootstrapDialog.show({
+        dialog = BootstrapDialog.show({
             title: 'Moodle - ' + title,
             message: container,
             buttons: [{
@@ -882,17 +865,42 @@
         });
     }
 
+    function showAppOnlyDialog() {
+        BootstrapDialog.show({
+            title: 'חיבור ל-Moodle',
+            message: 'החיבור לחשבון ה-Moodle זמין באפליקציית האנדרואיד בלבד (ההתחברות נעשית בתוך האפליקציה). ' +
+                'בדפדפן אפשר לייבא מועדי הגשה מלוח השנה של Moodle.',
+            buttons: [{
+                label: 'ייבוא לוח שנה (ics)',
+                action: function (dialog) {
+                    dialog.close();
+                    if (window.cheeseForkTasks) {
+                        window.cheeseForkTasks.showMoodleDialog();
+                    }
+                }
+            }, {
+                label: 'סגור',
+                cssClass: 'btn-primary',
+                action: function (dialog) {
+                    dialog.close();
+                }
+            }]
+        });
+    }
+
     function showConnectDialog() {
         trackEvent('moodle-connect-open');
+        if (!isAvailable()) {
+            showAppOnlyDialog();
+            return;
+        }
         var data = loadData();
-
-        var siteInput = $('<input type="url" class="form-control form-control-sm" dir="ltr">').val(data.siteUrl);
-        var tokenInput = $('<input type="password" class="form-control form-control-sm" dir="ltr" placeholder="הדביקו כאן מפתח (token)">');
         var message = $('<div></div>');
+        var buttons = [];
 
-        if (data.token) {
+        if (data.connected) {
             message.append(
-                $('<p></p>').text('מחובר ל-Moodle' + (data.userName ? ' בתור ' + data.userName : '') + '. ' +
+                $('<p></p>').text((data.expired ? 'ההתחברות ל-Moodle פגה. ' : 'מחובר ל-Moodle. ') +
                     data.courses.length + ' קורסים' + (data.lastSync ? ', סונכרן ' + moment(data.lastSync).format('DD/MM HH:mm') : '') + '.'),
                 $('<div class="cf-mobile-small text-muted"></div>').text(
                     'קורסים שזוהו: ' + (data.courses.map(function (course) {
@@ -906,41 +914,17 @@
                 message.append($('<div class="form-check mt-2"></div>').append(backgroundToggle,
                     '<label class="form-check-label small" for="cf-moodle-background">בדיקה ברקע כל חצי שעה והתראה על קבצים ותרגילי בית חדשים</label>'));
             }
-        } else {
-            message.append(
-                '<p>חיבור לחשבון ה-Moodle שלכם מאפשר לאפליקציה לראות חומרים חדשים, קבצים לכל שיעור ומטלות עם קישורים ישירים. ' +
-                'האפליקציה מקבלת מפתח גישה אישי (כמו אפליקציית Moodle הרשמית), שנשמר במכשיר זה בלבד.</p>',
-                $('<div class="form-group"></div>').append('<label class="small mb-0">כתובת ה-Moodle</label>', siteInput),
-                $('<button type="button" class="btn btn-primary btn-block mb-2"><i class="fas fa-sign-in-alt"></i> התחברות דרך Moodle (הזדהות טכניונית)</button>').click(function () {
-                    var latest = loadData();
-                    latest.siteUrl = siteInput.val().trim().replace(/\/$/, '') || DEFAULT_SITE;
-                    saveData(latest);
-                    dialog.close();
-                    if (platform.isNative) {
-                        connectViaBrowser();
-                    } else {
-                        BootstrapDialog.show({
-                            title: 'חיבור ל-Moodle',
-                            message: 'ההתחברות האוטומטית עובדת באפליקציה. בדפדפן אפשר להדביק מפתח ידנית: ב-Moodle פתחו "העדפות" ← "מפתחות אבטחה" (Security keys), ' +
-                                'העתיקו את המפתח של "Moodle mobile web service" והדביקו אותו בחלון החיבור.',
-                            size: BootstrapDialog.SIZE_SMALL
-                        });
-                    }
-                }),
-                $('<details class="cf-mobile-small"><summary>או הדבקת מפתח ידנית</summary></details>').append(
-                    $('<div class="mt-1"></div>').append(
-                        $('<div class="text-muted mb-1"></div>').html('ב-Moodle: העדפות ← חשבון משתמש ← <a href="' + data.siteUrl + '/user/managetoken.php" target="_blank" rel="noopener">מפתחות אבטחה</a> ← המפתח של Moodle mobile web service.'),
-                        tokenInput)));
-        }
-
-        var buttons = [];
-        if (data.token) {
+            message.append('<div class="cf-mobile-small text-muted mt-2">ההתחברות פגה מדי פעם (כמו באתר). כשזה קורה תופיע התראה, וכניסה מחדש לוקחת לחיצה אחת.</div>');
             buttons.push({
-                label: 'סנכרון',
+                label: data.expired ? 'התחברות מחדש' : 'סנכרון',
                 cssClass: 'btn-primary',
                 action: function (d) {
                     d.close();
-                    sync(true);
+                    if (data.expired) {
+                        connect();
+                    } else {
+                        sync(true);
+                    }
                 }
             }, {
                 label: 'ניתוק',
@@ -951,17 +935,15 @@
                 }
             });
         } else {
+            message.append(
+                '<p>התחברו ל-Moodle בתוך האפליקציה (הזדהות טכניונית אחידה), והאפליקציה תציג חומרים חדשים, את הקובץ האחרון לכל הרצאה ותרגול, ומועדי הגשה עם קישורים.</p>' +
+                '<p class="cf-mobile-small text-muted">ההתחברות נשמרת במכשיר זה בלבד, והאפליקציה קוראת רק את הקורסים, הקבצים ומועדי ההגשה שלכם.</p>');
             buttons.push({
-                label: 'חיבור עם המפתח',
+                label: 'התחברות ל-Moodle',
                 cssClass: 'btn-primary',
                 action: function (d) {
-                    var token = tokenInput.val().trim();
-                    if (!token) {
-                        tokenInput.addClass('is-invalid');
-                        return;
-                    }
                     d.close();
-                    connectWithToken(token, null, siteInput.val().trim().replace(/\/$/, '') || DEFAULT_SITE);
+                    connect();
                 }
             });
         }
@@ -980,7 +962,7 @@
             }
         });
 
-        var dialog = BootstrapDialog.show({
+        BootstrapDialog.show({
             title: 'חיבור ל-Moodle',
             message: message,
             buttons: buttons
@@ -1003,100 +985,19 @@
         }
     }
 
-    // Compact MD5 (RFC 1321), used to verify the SSO handoff like the Moodle app does.
-    function md5(input) {
-        function toBytes(str) {
-            var bytes = [];
-            var encoded = unescape(encodeURIComponent(str));
-            for (var i = 0; i < encoded.length; i++) {
-                bytes.push(encoded.charCodeAt(i));
-            }
-            return bytes;
-        }
-        function add(a, b) {
-            return (a + b) & 0xFFFFFFFF;
-        }
-        function rotl(x, c) {
-            return (x << c) | (x >>> (32 - c));
-        }
-        var K = [];
-        for (var i = 0; i < 64; i++) {
-            K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296);
-        }
-        var S = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
-            5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
-            4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
-            6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
-
-        var bytes = toBytes(input);
-        var bitLength = bytes.length * 8;
-        bytes.push(0x80);
-        while (bytes.length % 64 !== 56) {
-            bytes.push(0);
-        }
-        for (var b = 0; b < 8; b++) {
-            bytes.push(Math.floor(bitLength / Math.pow(2, 8 * b)) & 0xFF);
-        }
-
-        var a0 = 0x67452301, b0 = 0xEFCDAB89, c0 = 0x98BADCFE, d0 = 0x10325476;
-        for (var offset = 0; offset < bytes.length; offset += 64) {
-            var M = [];
-            for (var j = 0; j < 16; j++) {
-                M[j] = bytes[offset + j * 4] | (bytes[offset + j * 4 + 1] << 8) |
-                    (bytes[offset + j * 4 + 2] << 16) | (bytes[offset + j * 4 + 3] << 24);
-            }
-            var A = a0, B = b0, C = c0, D = d0;
-            for (var k = 0; k < 64; k++) {
-                var F, g;
-                if (k < 16) {
-                    F = (B & C) | (~B & D);
-                    g = k;
-                } else if (k < 32) {
-                    F = (D & B) | (~D & C);
-                    g = (5 * k + 1) % 16;
-                } else if (k < 48) {
-                    F = B ^ C ^ D;
-                    g = (3 * k + 5) % 16;
-                } else {
-                    F = C ^ (B | ~D);
-                    g = (7 * k) % 16;
-                }
-                var temp = D;
-                D = C;
-                C = B;
-                B = add(B, rotl(add(add(A, F), add(K[k], M[g])), S[k]));
-                A = temp;
-            }
-            a0 = add(a0, A);
-            b0 = add(b0, B);
-            c0 = add(c0, C);
-            d0 = add(d0, D);
-        }
-
-        function hex(n) {
-            var text = '';
-            for (var i = 0; i < 4; i++) {
-                text += ('0' + ((n >>> (i * 8)) & 0xFF).toString(16)).slice(-2);
-            }
-            return text;
-        }
-        return hex(a0) + hex(b0) + hex(c0) + hex(d0);
-    }
-
     function init() {
         api = window.cheeseFork;
         mobile = window.cheeseForkMobile;
 
+        // Data of the earlier token-based version can't be used anymore.
+        try {
+            localStorage.removeItem(OLD_STORAGE_KEY);
+        } catch (e) {
+            // Ignore.
+        }
+
         var app = platform.plugin('App');
         if (app) {
-            app.addListener('appUrlOpen', function (event) {
-                handleAppUrl(event && event.url);
-            });
-            app.getLaunchUrl().then(function (result) {
-                if (result && result.url) {
-                    handleAppUrl(result.url);
-                }
-            }).catch(function () {});
             app.addListener('appStateChange', function (appState) {
                 if (appState.isActive) {
                     autoSync();
@@ -1108,11 +1009,10 @@
     }
 
     window.cheeseForkMoodle = {
+        isAvailable: isAvailable,
         isConnected: isConnected,
+        connect: connect,
         sync: sync,
-        connectViaBrowser: connectViaBrowser,
-        connectWithToken: connectWithToken,
-        handleAppUrl: handleAppUrl,
         disconnect: disconnect,
         countUnread: countUnread,
         getNewItems: getNewItems,
@@ -1120,12 +1020,14 @@
         getCourseItems: getCourseItems,
         getMaterialsForLesson: getMaterialsForLesson,
         getRecentMaterialsText: getRecentMaterialsText,
+        handleLink: handleLink,
+        openUrl: openUrl,
         renderFeed: renderFeed,
         showFeedDialog: showFeedDialog,
         showCourseMaterials: showCourseMaterials,
         showConnectDialog: showConnectDialog,
         setBackgroundEnabled: setBackgroundEnabled,
-        md5: md5,
+        parseResources: parseResources,
         KIND_LABELS: KIND_LABELS
     };
 

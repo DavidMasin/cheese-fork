@@ -67,24 +67,28 @@ Shown automatically on phones, tablets, the installed PWA and the native app
   links to its day in the Moodle calendar. Everything is stored on the
   device only. On the website a browser can't fetch Moodle directly, so
   paste the calendar file's content instead.
-- **Moodle account connection** (app) – עוד → חיבור ל-Moodle → "התחברות
-  דרך Moodle". The browser opens Technion's login; when Moodle sends the app
-  its personal web-service token (the same mechanism the official Moodle
-  app uses, over the `cheesefork://` URL scheme) the app reads your enrolled
-  courses, their files and assignments. You get: a **"חדש ב-Moodle" feed**
-  at the top of the tasks tab (files and activities added since the last
-  check, with download buttons), **material for the next lesson** on the now
-  card (slides for a lecture, the sheet for a tutorial, matched by file and
-  section names) and a **"חומרי Moodle"** button in the course sheet listing
-  all files of that course, **assignments with direct links** merged into
-  the tasks (replacing the calendar-export entries), and the materials are
-  given to the AI helper so it can answer "יש חומר להרצאה הבאה?" with the
-  actual download links. Checks run on launch/resume (at most every 30
-  minutes), and **in the background every ~30 minutes** (Android
-  WorkManager, needs network): a notification lists new files and homework
-  and opens the tasks tab. The toggle is in the Moodle connection dialog.
-  A token can also be pasted by hand from Moodle's "מפתחות אבטחה" page,
-  which is the only route in a plain browser.
+- **Moodle account connection** (Android app) – עוד → חיבור ל-Moodle →
+  "התחברות ל-Moodle". Technion's Moodle has the mobile web service turned
+  off (token requests fail with "שרות-מקוון לא זמין"), so the app opens
+  Moodle's own login (Technion SSO) on a login screen inside the app and
+  keeps that session, like a browser would. With it the app uses Moodle's
+  session-enabled functions for your courses, course updates and
+  deadlines, and each course's standard resources page for files. You get:
+  a **"חדש ב-Moodle" feed** at the top of the tasks tab (files and
+  activities added or updated since the last check), **the latest material
+  for the next lesson** on the now card (newest slides for a lecture,
+  newest sheet for a tutorial, matched by name and section) and a
+  **"חומרי Moodle"** button in the course sheet with all files of the
+  course, **deadlines with direct links** merged into the tasks, and the
+  materials are given to the AI helper so it can answer "יש חומר להרצאה
+  הבאה?" with links. Files open inside the app with the session (in a PDF
+  viewer of your choice). Checks run on launch/resume (at most every 30
+  minutes) and **in the background every ~30 minutes** (Android
+  WorkManager, needs network), with a notification for new files and
+  homework. Moodle sessions expire like on the website; the app and a
+  notification then ask you to log in again, which is one tap while the
+  Microsoft login is remembered. In a plain browser only the calendar
+  (ics) import is available.
 - **AI helper** – bring your own key (Gemini has a free tier; OpenAI and
   Claude work too) under עוד → עוזר AI. The key stays on the device and
   requests go straight from the app to the provider. Three uses: the

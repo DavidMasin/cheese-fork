@@ -21,23 +21,25 @@ import androidx.work.WorkerParameters;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Periodic check of the watched Moodle courses: fetches each course's
- * contents, compares with the snapshot the app last saw (plus what this
- * worker already reported), and notifies about new files and activities.
+ * Periodic Moodle check with the user's session: new deadlines from the
+ * calendar (homework, quizzes) and new files/activities from each watched
+ * course's resources page, compared with what the app already saw.
  */
 public class MoodleCheckWorker extends Worker {
     private static final String CHANNEL_ID = "moodle-updates";
     private static final int NOTIFICATION_ID = 90001;
+    private static final int EXPIRED_NOTIFICATION_ID = 90002;
+
+    private static final Pattern MODULE_LINK = Pattern.compile(
+        "href=\"[^\"]*/mod/(\\w+)/view\\.php\\?id=(\\d+)[^\"]*\"[^>]*>(.*?)</a>", Pattern.DOTALL);
 
     public MoodleCheckWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
@@ -47,93 +49,95 @@ public class MoodleCheckWorker extends Worker {
     @Override
     public Result doWork() {
         Context context = getApplicationContext();
-        SharedPreferences prefs = context.getSharedPreferences(MoodleBackgroundPlugin.PREFS, Context.MODE_PRIVATE);
-        String siteUrl = prefs.getString("siteUrl", "");
-        String token = prefs.getString("token", "");
-        if (!prefs.getBoolean("enabled", false) || siteUrl.isEmpty() || token.isEmpty()) {
+        SharedPreferences prefs = MoodleSession.prefs(context);
+        String site = MoodleSession.site(context);
+        if (!prefs.getBoolean("enabled", false) || site.isEmpty() || MoodleSession.sesskey(context).isEmpty()) {
             return Result.success();
         }
 
         try {
             JSONArray courses = new JSONArray(prefs.getString("courses", "[]"));
-            JSONObject snapshot = new JSONObject(prefs.getString("snapshot", "{}"));
-            boolean firstRun = snapshot.length() == 0;
-            JSONObject updated = new JSONObject();
-            List<String> newLines = new ArrayList<>();
+            Set<String> knownCmids = toSet(new JSONArray(prefs.getString("knownCmids", "[]")));
+            Set<String> knownEvents = toSet(new JSONArray(prefs.getString("knownEvents", "[]")));
+            List<String> lines = new ArrayList<>();
             int newCount = 0;
 
-            for (int i = 0; i < courses.length(); i++) {
-                JSONObject course = courses.getJSONObject(i);
-                int courseId = course.getInt("id");
-                String courseName = shortCourseName(course.optString("name", ""));
-
-                JSONArray sections = fetchContents(siteUrl, token, courseId);
-                if (sections == null) {
-                    // Keep the old snapshot entries of a course that failed.
-                    copyCourseEntries(snapshot, updated, courseId);
-                    continue;
-                }
-
-                for (int s = 0; s < sections.length(); s++) {
-                    JSONArray modules = sections.getJSONObject(s).optJSONArray("modules");
-                    if (modules == null) {
-                        continue;
-                    }
-                    for (int m = 0; m < modules.length(); m++) {
-                        JSONObject module = modules.getJSONObject(m);
-                        if ("label".equals(module.optString("modname"))) {
-                            continue;
-                        }
-                        if (module.optInt("visible", 1) == 0 || !module.optBoolean("uservisible", true)) {
-                            continue;
-                        }
-                        int cmid = module.getInt("id");
-                        JSONArray contents = module.optJSONArray("contents");
-                        boolean hasFiles = false;
-                        if (contents != null && !"assign".equals(module.optString("modname"))) {
-                            for (int c = 0; c < contents.length(); c++) {
-                                JSONObject file = contents.getJSONObject(c);
-                                if (!"file".equals(file.optString("type"))) {
-                                    continue;
-                                }
-                                hasFiles = true;
-                                String key = "f" + cmid + ":" + file.optString("filename");
-                                long time = file.optLong("timemodified", 0) * 1000;
-                                updated.put(key, time);
-                                if (!firstRun && isNew(snapshot, key, time)) {
-                                    newCount++;
-                                    if (newLines.size() < 6) {
-                                        newLines.add(courseName + ": " + module.optString("name") +
-                                            (file.optString("filename").equals(module.optString("name")) ? "" : " (" + file.optString("filename") + ")"));
-                                    }
-                                }
-                            }
-                        }
-                        if (!hasFiles) {
-                            String key = "m" + cmid;
-                            long time = module.optLong("timemodified", 0) * 1000;
-                            updated.put(key, time);
-                            if (!firstRun && isNew(snapshot, key, time)) {
-                                newCount++;
-                                if (newLines.size() < 6) {
-                                    String label = "assign".equals(module.optString("modname")) ? "תרגיל בית: " : "";
-                                    newLines.add(courseName + ": " + label + module.optString("name"));
-                                }
-                            }
+            // Deadlines (homework, quizzes) from the calendar.
+            JSONObject args = new JSONObject();
+            args.put("timesortfrom", System.currentTimeMillis() / 1000 - 86400);
+            args.put("limitnum", 50);
+            args.put("limittononsuspendedevents", true);
+            JSONObject eventsData = new JSONObject(MoodleSession.ajax(context, "core_calendar_get_action_events_by_timesort", args.toString()));
+            JSONArray events = eventsData.optJSONArray("events");
+            boolean firstEvents = knownEvents.isEmpty();
+            if (events != null) {
+                for (int i = 0; i < events.length(); i++) {
+                    JSONObject event = events.getJSONObject(i);
+                    String id = String.valueOf(event.optLong("id"));
+                    if (knownEvents.add(id) && !firstEvents) {
+                        newCount++;
+                        if (lines.size() < 6) {
+                            String module = event.optString("modulename");
+                            String label = "assign".equals(module) ? "תרגיל בית: " : "quiz".equals(module) ? "בוחן: " : "";
+                            String name = event.optString("activityname", event.optString("name"));
+                            JSONObject course = event.optJSONObject("course");
+                            lines.add(shortCourseName(course != null ? course.optString("fullname") : "") + ": " + label + name);
                         }
                     }
                 }
             }
 
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putString("snapshot", updated.toString());
-            editor.putLong("lastCheck", System.currentTimeMillis());
-            editor.putString("lastError", "");
-            editor.putInt("lastNewCount", newCount);
-            editor.apply();
+            // Files and activities from each course's resources page.
+            for (int i = 0; i < courses.length(); i++) {
+                JSONObject course = courses.getJSONObject(i);
+                MoodleSession.Response page = MoodleSession.get(site + "/course/resources.php?id=" + course.getInt("id"));
+                if (MoodleSession.isLoginUrl(page.finalUrl)) {
+                    throw new MoodleSession.SessionExpiredException();
+                }
+                if (page.status != 200) {
+                    continue;
+                }
+                List<String[]> found = new ArrayList<>();
+                Matcher matcher = MODULE_LINK.matcher(page.body);
+                while (matcher.find()) {
+                    found.add(new String[]{matcher.group(2), cleanName(matcher.group(3))});
+                }
+                boolean courseKnown = false;
+                for (String[] item : found) {
+                    if (knownCmids.contains(item[0])) {
+                        courseKnown = true;
+                        break;
+                    }
+                }
+                for (String[] item : found) {
+                    if (knownCmids.add(item[0]) && courseKnown) {
+                        newCount++;
+                        if (lines.size() < 6) {
+                            lines.add(shortCourseName(course.optString("name")) + ": " + item[1]);
+                        }
+                    }
+                }
+            }
+
+            prefs.edit()
+                .putString("knownCmids", new JSONArray(knownCmids).toString())
+                .putString("knownEvents", new JSONArray(knownEvents).toString())
+                .putLong("lastCheck", System.currentTimeMillis())
+                .putString("lastError", "")
+                .putInt("lastNewCount", newCount)
+                .putBoolean("expiredNotified", false)
+                .apply();
 
             if (newCount > 0) {
-                notifyNewItems(context, newCount, newLines);
+                notifyNewItems(context, newCount, lines);
+            }
+            return Result.success();
+        } catch (MoodleSession.SessionExpiredException e) {
+            prefs.edit().putString("lastError", "expired").apply();
+            if (!prefs.getBoolean("expiredNotified", false)) {
+                prefs.edit().putBoolean("expiredNotified", true).apply();
+                notify(context, EXPIRED_NOTIFICATION_ID, "ההתחברות ל-Moodle פגה",
+                    "פתחו את CheeseFork והתחברו מחדש כדי להמשיך לקבל עדכונים.", null);
             }
             return Result.success();
         } catch (Exception e) {
@@ -142,22 +146,20 @@ public class MoodleCheckWorker extends Worker {
         }
     }
 
-    private static boolean isNew(JSONObject snapshot, String key, long time) {
-        if (!snapshot.has(key)) {
-            return true;
+    private static Set<String> toSet(JSONArray array) {
+        Set<String> set = new HashSet<>();
+        for (int i = 0; i < array.length(); i++) {
+            set.add(String.valueOf(array.opt(i)));
         }
-        return time > snapshot.optLong(key, 0);
+        return set;
     }
 
-    private static void copyCourseEntries(JSONObject from, JSONObject to, int courseId) throws Exception {
-        // Keys don't carry the course id, so keep everything we can't re-check.
-        Iterator<String> keys = from.keys();
-        while (keys.hasNext()) {
-            String key = keys.next();
-            if (!to.has(key)) {
-                to.put(key, from.getLong(key));
-            }
-        }
+    private static String cleanName(String html) {
+        String text = html.replaceAll("<span[^>]*accesshide[^>]*>.*?</span>", "")
+            .replaceAll("<[^>]+>", "")
+            .replace("&amp;", "&").replace("&quot;", "\"").replace("&#039;", "'").replace("&nbsp;", " ")
+            .trim();
+        return text.isEmpty() ? "פריט חדש" : text;
     }
 
     private static String shortCourseName(String name) {
@@ -165,44 +167,22 @@ public class MoodleCheckWorker extends Worker {
         return trimmed.length() > 28 ? trimmed.substring(0, 27) + "…" : trimmed;
     }
 
-    private static JSONArray fetchContents(String siteUrl, String token, int courseId) {
-        HttpURLConnection connection = null;
-        try {
-            String url = siteUrl.replaceAll("/$", "") + "/webservice/rest/server.php" +
-                "?wstoken=" + URLEncoder.encode(token, "UTF-8") +
-                "&wsfunction=core_course_get_contents&moodlewsrestformat=json" +
-                "&courseid=" + courseId +
-                "&options[0][name]=excludemodules&options[0][value]=0";
-            connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setConnectTimeout(20000);
-            connection.setReadTimeout(30000);
-            connection.setRequestProperty("Accept", "application/json");
-            if (connection.getResponseCode() != 200) {
-                return null;
+    private static void notifyNewItems(Context context, int count, List<String> lines) {
+        String title = count == 1 ? "פריט חדש ב-Moodle" : count + " פריטים חדשים ב-Moodle";
+        StringBuilder text = new StringBuilder();
+        for (String line : lines) {
+            if (text.length() > 0) {
+                text.append("\n");
             }
-            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), "UTF-8"));
-            StringBuilder builder = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                builder.append(line);
-            }
-            reader.close();
-            String body = builder.toString().trim();
-            if (body.startsWith("{")) {
-                // An exception object (invalid token etc.).
-                return null;
-            }
-            return new JSONArray(body);
-        } catch (Exception e) {
-            return null;
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
+            text.append(line);
         }
+        if (count > lines.size()) {
+            text.append("\nועוד ").append(count - lines.size()).append("...");
+        }
+        notify(context, NOTIFICATION_ID, title, lines.isEmpty() ? "" : lines.get(0), text.toString());
     }
 
-    private static void notifyNewItems(Context context, int count, List<String> lines) {
+    private static void notify(Context context, int id, String title, String text, String bigText) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             return;
@@ -222,27 +202,17 @@ public class MoodleCheckWorker extends Worker {
         PendingIntent pendingIntent = PendingIntent.getActivity(context, 1, intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        String title = count == 1 ? "פריט חדש ב-Moodle" : count + " פריטים חדשים ב-Moodle";
-        StringBuilder text = new StringBuilder();
-        for (String line : lines) {
-            if (text.length() > 0) {
-                text.append("\n");
-            }
-            text.append(line);
-        }
-        if (count > lines.size()) {
-            text.append("\nועוד ").append(count - lines.size()).append("...");
-        }
-
-        Notification notification = new NotificationCompat.Builder(context, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(context.getApplicationInfo().icon)
             .setContentTitle(title)
-            .setContentText(lines.isEmpty() ? "" : lines.get(0))
-            .setStyle(new NotificationCompat.BigTextStyle().bigText(text.toString()))
+            .setContentText(text)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build();
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification);
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT);
+        if (bigText != null) {
+            builder.setStyle(new NotificationCompat.BigTextStyle().bigText(bigText));
+        }
+        Notification notification = builder.build();
+        NotificationManagerCompat.from(context).notify(id, notification);
     }
 }
