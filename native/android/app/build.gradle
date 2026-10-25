@@ -15,8 +15,10 @@ android {
         applicationId "cf.cheesefork.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Every build gets a higher version (minutes since 2025-02-20) so
+        // updates install cleanly and the app can show which build it is.
+        versionCode Math.toIntExact(System.currentTimeMillis().intdiv(60000L) - 29000000L)
+        versionName "1.0." + new java.text.SimpleDateFormat("yyMMdd.HHmm").format(new Date())
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

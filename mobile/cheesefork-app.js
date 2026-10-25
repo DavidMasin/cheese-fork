@@ -426,6 +426,16 @@
     }
 
     function showAboutDialog() {
+        var app = platform.plugin('App');
+        var info = app ? app.getInfo().catch(function () {
+            return null;
+        }) : Promise.resolve(null);
+        info.then(function (result) {
+            showAboutDialogWithVersion(result && result.version ? result.version : null);
+        });
+    }
+
+    function showAboutDialogWithVersion(version) {
         BootstrapDialog.show({
             title: 'אודות',
             message: '<div class="text-center">' +
@@ -434,6 +444,7 @@
                     '<div class="mt-2">תוכנת על ידי <a href="https://github.com/michael-maltsev" target="_blank" rel="noopener">מיכאל מלצב</a>; ' +
                     'האפליקציה והתוספות למובייל מתוחזקות ב-<a href="https://github.com/DavidMasin/cheese-fork" target="_blank" rel="noopener">GitHub</a>.</div>' +
                     '<div class="mt-2"><a href="https://cheesefork.cf/PRIVACY.md" target="_blank" rel="noopener">מדיניות פרטיות</a></div>' +
+                    (version ? '<div class="mt-2 text-muted cf-mobile-small" dir="ltr">' + $('<div>').text('v' + version).html() + '</div>' : '') +
                 '</div>',
             buttons: [{
                 label: 'סגור',

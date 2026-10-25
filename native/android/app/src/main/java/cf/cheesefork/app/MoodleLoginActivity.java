@@ -5,12 +5,14 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -69,7 +71,23 @@ public class MoodleLoginActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(Color.parseColor("#F8F9FA"));
+        // Android 15 draws apps edge to edge; keep the bar below the status bar
+        // and the page above the navigation bar / keyboard.
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            int top;
+            int bottom;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
+                top = bars.top;
+                bottom = bars.bottom;
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            view.setPadding(0, top, 0, bottom);
+            return insets;
+        });
 
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
@@ -86,7 +104,13 @@ public class MoodleLoginActivity extends Activity {
         title.setTextSize(17);
         texts.addView(title);
         status = new TextView(this);
-        status.setText("התחברו כרגיל. המסך ייסגר מעצמו כשתיכנסו.");
+        String version = "";
+        try {
+            version = " · גרסה " + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            // Ignore.
+        }
+        status.setText("התחברו כרגיל. המסך ייסגר מעצמו כשתיכנסו." + version);
         status.setTextColor(Color.parseColor("#6C757D"));
         status.setTextSize(12);
         texts.addView(status);
