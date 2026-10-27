@@ -956,8 +956,10 @@ function cheeseForkMain() {
                     });
                 };
 
-                if (viewingSharedSchedule || typeof firebase === 'undefined' || firebase.auth().currentUser === null) {
-                    var platform = window.cheeseForkPlatform;
+                var platform = window.cheeseForkPlatform;
+                // The iPhone app shares the file instead of uploading it to the CheeseFork server.
+                if (viewingSharedSchedule || typeof firebase === 'undefined' || firebase.auth().currentUser === null ||
+                    (platform && platform.os === 'ios')) {
                     if (platform && platform.saveTextFile) {
                         // The native app can't download blobs, share the file instead.
                         var calendarText = icsCal.build();
