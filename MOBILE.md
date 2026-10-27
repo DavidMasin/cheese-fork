@@ -166,7 +166,39 @@ Xcode, so the easiest route is the PWA:
 It opens full-screen with its own icon, works offline, and has all the
 mobile features except notifications.
 
-### The native app without a Mac: GitHub Actions → TestFlight
+### The native app without a Mac: EAS → TestFlight (recommended)
+
+Same flow as the Chief Delphi app: EAS builds in the cloud and manages the
+FRCBOM signing credentials and the TestFlight upload. CheeseFork is a
+Capacitor app, not an Expo app, so `eas.json` points the build at a custom
+build (`.eas/build/ios-capacitor.yml`): it assembles the web app, runs
+`cap sync ios`, and hands the Capacitor Xcode project to EAS's own signing
+and Xcode steps. The project is linked to `@davidmasin/deploy` (the slug
+`deploy` in `app.json` must stay, it's the EAS project's name).
+
+```bash
+npm install -g eas-cli
+eas login
+eas build --platform ios --profile production --auto-submit
+```
+
+The first build asks:
+
+| Prompt | Answer |
+| --- | --- |
+| Initialize the iOS build number remotely? | Yes |
+| Log in to your Apple account? | Yes, the FRCBOM Apple ID (2FA code) |
+| Register the bundle identifier `com.frcbom.cheesefork`? | Yes |
+| Generate a Distribution Certificate / Provisioning Profile? | Yes (reuse the FRCBOM certificate if offered) |
+| Set up Push Notifications? | No |
+| Submit: create an App Store Connect app? | Yes. Name `CheeseFork` (or a variant if taken), SKU `cheesefork` |
+| Submit: App Store Connect API key? | Let EAS use or generate one |
+
+Then App Store Connect → the app → TestFlight → Internal Testing: add your
+Apple ID, and install from the TestFlight app. Next builds: the same
+`eas build` command (build numbers increment automatically).
+
+### Alternative without EAS: GitHub Actions → TestFlight
 
 The workflow `.github/workflows/ios-testflight.yml` builds the iOS app
 (bundle ID `com.frcbom.cheesefork`) on a GitHub Mac runner, lets Xcode sign

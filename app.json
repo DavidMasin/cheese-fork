@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "CheeseFork",
+    "slug": "deploy",
+    "version": "1.0.0",
+    "owner": "davidmasin",
+    "platforms": ["ios"],
+    "ios": {
+      "bundleIdentifier": "com.frcbom.cheesefork",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "547fad67-1720-4179-a7ac-4bb1dcb9dc9f"
+      }
+    }
+  }
+}

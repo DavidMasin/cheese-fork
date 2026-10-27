@@ -1,0 +1,39 @@
+# EAS custom build for the Capacitor iOS app (native/ios). EAS normally
+# builds Expo/React Native projects; these steps assemble CheeseFork's web
+# app, sync it into the Capacitor Xcode project, and then use EAS's own
+# signing and Xcode steps, so EAS manages the certificates and the upload:
+#
+#   eas build --platform ios --profile production --auto-submit
+build:
+  name: CheeseFork iOS (Capacitor)
+  steps:
+    - eas/checkout
+
+    - run:
+        name: Install the app's dependencies
+        working_directory: ./native
+        command: npm ci --no-audit --no-fund
+
+    - run:
+        name: Assemble the web app and sync the iOS project
+        working_directory: ./native
+        command: |
+          npm run build:www
+          npx cap sync ios
+
+    # EAS expects the Xcode project in ./ios.
+    - run:
+        name: Point EAS at the Capacitor Xcode project
+        command: ln -sfn native/ios/App ios
+
+    - eas/resolve_build_config
+    - eas/resolve_apple_team_id_from_credentials:
+        id: resolve_apple_team_id
+    - eas/configure_ios_credentials
+    - eas/configure_ios_version
+    - eas/generate_gymfile_from_template:
+        inputs:
+          scheme: App
+          credentials: ${ eas.job.secrets.buildCredentials }
+    - eas/run_fastlane
+    - eas/find_and_upload_build_artifacts
