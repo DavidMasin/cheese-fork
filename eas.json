@@ -22,7 +22,9 @@
   },
   "submit": {
     "production": {
-      "ios": {}
+      "ios": {
+        "appName": "CheeseFork"
+      }
     }
   }
 }

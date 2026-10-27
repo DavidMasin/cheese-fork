@@ -174,7 +174,10 @@ Capacitor app, not an Expo app, so `eas.json` points the build at a custom
 build (`.eas/build/ios-capacitor.yml`): it assembles the web app, runs
 `cap sync ios`, and hands the Capacitor Xcode project to EAS's own signing
 and Xcode steps. The project is linked to `@davidmasin/deploy` (the slug
-`deploy` in `app.json` must stay, it's the EAS project's name).
+`deploy` in `app.json` must stay, it's the EAS project's name). `name` in
+`app.json` is `App` on purpose: EAS names the Xcode target after it, and
+Capacitor's target is `App`. The home-screen name comes from the iOS
+project (CheeseFork), and `eas.json` sets the App Store Connect name.
 
 ```bash
 npm install -g eas-cli
