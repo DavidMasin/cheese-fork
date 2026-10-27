@@ -9,6 +9,10 @@ build:
   steps:
     - eas/checkout
 
+    # Root dependencies include expo-modules-autolinking, which EAS needs to
+    # read the app config (iOS entitlements) of a project without Expo.
+    - eas/install_node_modules
+
     - run:
         name: Install the app's dependencies
         working_directory: ./native
