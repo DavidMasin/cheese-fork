@@ -1,0 +1,27 @@
+# Files EAS leaves out of the project it uploads for an iOS cloud build.
+# When this file exists EAS reads it instead of .gitignore, and EAS never
+# reads nested .gitignore files such as native/.gitignore, so everything that
+# must stay local is listed here. The build reassembles native/www and
+# native/ios/App/App/public itself (see .eas/build/ios-capacitor.yml).
+
+# From .gitignore and native/.gitignore
+node_modules/
+.claude/
+native/www/
+native/dist/
+native/keystore.properties
+*.jks
+*.keystore
+.DS_Store
+
+# Android: not used by the iOS build
+native/android/
+native/build-android.ps1
+download/
+
+# Local output of cap sync ios, regenerated on EAS
+native/ios/App/App/public/
+native/ios/App/App/capacitor.config.json
+native/ios/App/App/config.xml
+native/ios/App/Pods/
+native/ios/capacitor-cordova-ios-plugins/
