@@ -46,4 +46,47 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
+    // Apps built with the iOS 27 SDK must use the scene life cycle or they
+    // crash at launch. The window and its CAPBridgeViewController come from
+    // Main.storyboard (UISceneStoryboardFile in Info.plist).
+    func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let config = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
+        config.delegateClass = SceneDelegate.self
+        config.storyboard = UIStoryboard(name: "Main", bundle: nil)
+        return config
+    }
+
+}
+
+// With scenes, iOS delivers opened URLs and user activities here instead of
+// to the AppDelegate methods above, so hand them to Capacitor the same way.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        if let urlContext = connectionOptions.urlContexts.first {
+            openURL(urlContext)
+        }
+        if let userActivity = connectionOptions.userActivities.first {
+            self.scene(scene, continue: userActivity)
+        }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        URLContexts.forEach(openURL)
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
+    }
+
+    private func openURL(_ urlContext: UIOpenURLContext) {
+        var options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+        options[.sourceApplication] = urlContext.options.sourceApplication
+        options[.annotation] = urlContext.options.annotation
+        options[.openInPlace] = urlContext.options.openInPlace
+        _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: urlContext.url, options: options)
+    }
+
 }
